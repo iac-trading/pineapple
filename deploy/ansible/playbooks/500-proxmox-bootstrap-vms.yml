@@ -37,7 +37,7 @@
     pve_ssh_host: "10.100.100.1"
     # ID de tu VM base/template (Ubuntu/Debian con Cloud-Init)
     template_vmid: 9000
-    storage_system: "local-lvm"
+    storage_system: "local-trading"
     net_bridge: "vmbr0"
     vlan_gateway: "10.100.100.1"
     dns_servers: ["10.100.100.1", "1.1.1.1"]
