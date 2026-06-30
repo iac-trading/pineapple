@@ -1,5 +1,5 @@
 # =================================================================
-# 500 | Proxmox & Controller Bootstrap (Migrated to 10.100.100.x)
+# 500 | Proxmox & Controller Bootstrap (VM-AQ-[ROLE] Format)
 # =================================================================
 ---
 - name: 500.1 | Controller | Preparar Máquina Controladora (Localhost)
@@ -27,7 +27,7 @@
           - pandas
         state: present
 
-- name: 500.2 | Proxmox | Crear/Actualizar VMs Consolidadas (V2.0 - 256GB RAM)
+- name: 500.2 | Proxmox | Crear/Actualizar VMs Consolidadas (V3.0)
   hosts: localhost
   gather_facts: false
   tags: [ "proxmox", "provision" ]
@@ -45,17 +45,20 @@
 
     # CONFIGURACIÓN DE ALTO RENDIMIENTO (AJUSTADA AL LÍMITE DE HARDWARE)
     vms:
-      # BRAIN: Orquestación, NATS, Airflow, UI, Grafana
-      - { name: "tr-infra-brain-01", vmid: 801, cores: 12, mem: 32768,  root_gb: 200,  ip: "10.100.100.200/24" }
+      # BRAIN: Orquestación, NATS, Airflow, UI, Grafana (Sin IA/Ollama)
+      - { name: "VM-AQ-BRAIN", vmid: 801, cores: 12, mem: 32768,  root_gb: 200,  ip: "10.100.100.201/24" }
       
       # DATA: TimescaleDB (Optimizado para aprovechar 96GB RAM)
-      - { name: "tr-infra-data-01", vmid: 802, cores: 16, mem: 98304,  root_gb: 1000, ip: "10.100.100.201/24" }
+      - { name: "VM-AQ-DATA", vmid: 802, cores: 16, mem: 98304,  root_gb: 1000, ip: "10.100.100.202/24" }
       
-      # COMPUTE: Agente, Puentes (IBKR/Deriv) y Estrategias LIVE
-      - { name: "tr-infra-compute-01", vmid: 803, cores: 16, mem: 65536,  root_gb: 600,  ip: "10.100.100.202/24" }
+      # COMPUTE: Agente y Estrategias LIVE
+      - { name: "VM-AQ-COMPUTE", vmid: 803, cores: 16, mem: 65536,  root_gb: 600,  ip: "10.100.100.203/24" }
       
-      # LAB: JupyterHub y 30 Trabajadores de Backtesting (Máximo 16 cores por hardware)
-      - { name: "tr-infra-lab-01", vmid: 804, cores: 16, mem: 65536,  root_gb: 800,  ip: "10.100.100.203/24" }
+      # IA: Ollama y Estrategias IA (Se separa la IA a su propia VM)
+      - { name: "VM-AQ-IA", vmid: 804, cores: 16, mem: 32768,  root_gb: 400,  ip: "10.100.100.204/24" }
+
+      # TRADE: Forex, IBKR Gateway y otros proveedores (Reemplaza a LAB)
+      - { name: "VM-AQ-TRADE", vmid: 805, cores: 16, mem: 65536,  root_gb: 600,  ip: "10.100.100.205/24" }
 
   pre_tasks:
     - name: Preparar DNS string
@@ -63,7 +66,7 @@
         dns_string: "{{ dns_servers | join(' ') }}"
 
   tasks:
-    - name: Eliminar VM previa si existe (Limpieza de Nodos 801-804)
+    - name: Eliminar VM previa si existe (Limpieza de Nodos 801-805)
       delegate_to: "{{ pve_ssh_host }}"
       become: true
       shell: |
