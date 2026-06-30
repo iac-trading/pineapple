@@ -132,6 +132,7 @@
       loop_control: { label: "START {{ item.name }}" }
 
     - name: Esperar conexión SSH en la nueva red
+      become: false
       wait_for:
         host: "{{ (item.ip | string).split('/')[0] }}"
         port: 22
