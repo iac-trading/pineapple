@@ -1,5 +1,5 @@
 # =================================================================
-# 500 | Proxmox & Controller Bootstrap (VM-AQ-[ROLE] Format)
+# 500 | Proxmox & Controller Bootstrap (Optimized Resources V3.1)
 # =================================================================
 ---
 - name: 500.1 | Controller | Preparar Máquina Controladora (Localhost)
@@ -43,22 +43,22 @@
     dns_servers: ["10.100.100.1", "1.1.1.1"]
     ssh_wait_timeout: 900
 
-    # CONFIGURACIÓN DE ALTO RENDIMIENTO (AJUSTADA AL LÍMITE DE HARDWARE)
+    # CONFIGURACIÓN DE ALTO RENDIMIENTO (OPTIMIZADA A 300GB RAM Y 3.8TB STORAGE MÁXIMOS)
     vms:
       # BRAIN: Orquestación, NATS, Airflow, UI, Grafana (Sin IA/Ollama)
-      - { name: "VM-AQ-BRAIN", vmid: 801, cores: 12, mem: 32768,  root_gb: 200,  ip: "10.100.100.201/24" }
+      - { name: "VM-AQ-BRAIN", vmid: 801, cores: 8, mem: 16384,  root_gb: 150,  ip: "10.100.100.201/24" }
       
       # DATA: TimescaleDB (Optimizado para aprovechar 96GB RAM)
-      - { name: "VM-AQ-DATA", vmid: 802, cores: 16, mem: 98304,  root_gb: 1000, ip: "10.100.100.202/24" }
+      - { name: "VM-AQ-DATA", vmid: 802, cores: 16, mem: 98304,  root_gb: 1500, ip: "10.100.100.202/24" }
       
       # COMPUTE: Agente y Estrategias LIVE
-      - { name: "VM-AQ-COMPUTE", vmid: 803, cores: 16, mem: 65536,  root_gb: 600,  ip: "10.100.100.203/24" }
+      - { name: "VM-AQ-COMPUTE", vmid: 803, cores: 12, mem: 49152,  root_gb: 300,  ip: "10.100.100.203/24" }
       
-      # IA: Ollama y Estrategias IA (Se separa la IA a su propia VM)
-      - { name: "VM-AQ-IA", vmid: 804, cores: 16, mem: 32768,  root_gb: 400,  ip: "10.100.100.204/24" }
+      # IA: Ollama y Estrategias IA (Se separa la IA a su propia VM con 64GB de RAM)
+      - { name: "VM-AQ-IA", vmid: 804, cores: 16, mem: 65536,  root_gb: 500,  ip: "10.100.100.204/24" }
 
       # TRADE: Forex, IBKR Gateway y otros proveedores (Reemplaza a LAB)
-      - { name: "VM-AQ-TRADE", vmid: 805, cores: 16, mem: 65536,  root_gb: 600,  ip: "10.100.100.205/24" }
+      - { name: "VM-AQ-TRADE", vmid: 805, cores: 12, mem: 65536,  root_gb: 300,  ip: "10.100.100.205/24" }
 
   pre_tasks:
     - name: Preparar DNS string
