@@ -36,7 +36,7 @@
     # IP de tu nodo Proxmox físico
     pve_ssh_host: "10.100.100.1"
     # ID de tu VM base/template (Ubuntu/Debian con Cloud-Init)
-    template_vmid: 800
+    template_vmid: 9000
     storage_system: "local-lvm"
     net_bridge: "vmbr0"
     vlan_gateway: "10.100.100.1"
