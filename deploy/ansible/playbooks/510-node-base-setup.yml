@@ -1,0 +1,11 @@
+# =================================================================
+# 510 | Base OS, Docker & System Agent Configuration
+# =================================================================
+---
+- name: 510 | Base OS, Docker & System Agent Configuration
+  hosts: all
+  gather_facts: true
+  tags: [ "common", "base_setup" ]
+  roles:
+    - common
+    - portainer_agent
