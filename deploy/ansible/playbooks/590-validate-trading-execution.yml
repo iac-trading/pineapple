@@ -6,10 +6,12 @@
   hosts: localhost
   gather_facts: false
   tags: [ "validate", "shadow_phase" ]
-  vars:
-    test_instance_id: "{{ 999999999 | random | string | to_uuid }}"
 
   tasks:
+    - name: "SETUP | Generate static random instance ID"
+      ansible.builtin.set_fact:
+        test_instance_id: "{{ 999999999 | random | string | to_uuid }}"
+
     - name: "SCHEMA | Clean up old test runs"
       delegate_to: "{{ groups['dat'][0] }}"
       shell: |
@@ -128,10 +130,13 @@
   tags: [ "validate", "position_sizing" ]
   vars:
     test_symbol: "BTC/USDT"
-    test_instance_id: "{{ 555555555 | random | string | to_uuid }}"
-    test_correlation_id: "{{ 666666666 | random | string | to_uuid }}"
 
   tasks:
+    - name: "SETUP | Generate static random instance and correlation IDs"
+      ansible.builtin.set_fact:
+        test_instance_id: "{{ 555555555 | random | string | to_uuid }}"
+        test_correlation_id: "{{ 666666666 | random | string | to_uuid }}"
+
     - name: "TEST | Check Bridge Balance Endpoint"
       ansible.builtin.shell: |
         docker exec bridge_provider python3 -c "
@@ -199,11 +204,14 @@
   gather_facts: false
   tags: [ "validate", "reconciliation" ]
   vars:
-    test_instance_id: "{{ 888888888 | random | string | to_uuid }}"
     test_symbol: "RECON/TEST"
     test_broker: "paper"
 
   tasks:
+    - name: "SETUP | Generate static random instance ID"
+      ansible.builtin.set_fact:
+        test_instance_id: "{{ 888888888 | random | string | to_uuid }}"
+
     - name: "SETUP | Inject Dummy Blueprint and Test Instance into DB"
       delegate_to: "{{ groups['dat'][0] }}"
       shell: |
