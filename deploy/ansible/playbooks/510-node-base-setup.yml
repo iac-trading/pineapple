@@ -3,7 +3,7 @@
 # =================================================================
 ---
 - name: 510 | Base OS, Docker & System Agent Configuration
-  hosts: all
+  hosts: all:!perimeter_router
   gather_facts: true
   tags: [ "common", "base_setup" ]
   roles:
