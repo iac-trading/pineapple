@@ -1,0 +1,141 @@
+---
+# FASE 0: Pre-vuelo y Dependencias Externas
+- name: "Axio-Quant | [REMOTO] Verificar conectividad con DB ({{ postgres_host }})"
+  ansible.builtin.wait_for:
+    host: "{{ postgres_host }}"
+    port: 5432
+    state: started
+    timeout: 60
+    msg: "Error: El nodo DATA ({{ postgres_host }}) no responde en el puerto 5432. Abortando inicio de Airflow."
+
+# FASE 1: Seguridad y Llaves
+- name: "Airflow | [LOCAL] Generar llaves SSH"
+  delegate_to: localhost
+  run_once: true
+  ansible.builtin.openssh_keypair:
+    path: "/home/aqinfra/pineapple/secrets/airflow_ssh/id_ed25519"
+    type: ed25519
+  register: local_key_gen
+
+- name: "Airflow | [REMOTO] Estructura de directorios UID 50000"
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "50000"
+    group: "0"
+    mode: "0775"
+  loop:
+    - "{{ platform_compose_dir }}/10_base/airflow"
+    - "{{ platform_compose_dir }}/10_base/airflow/secrets"
+    - "{{ platform_root_dir }}/logs/airflow"
+    - "{{ platform_repo_dir }}/dags"
+
+- name: "Airflow | [REMOTO] Copiar llave privada"
+  become: true
+  ansible.builtin.copy:
+    src: "/home/aqinfra/pineapple/secrets/airflow_ssh/id_ed25519"
+    dest: "{{ platform_compose_dir }}/10_base/airflow/secrets/id_ed25519"
+    owner: "50000"
+    mode: "0600"
+
+# FASE 2: Despliegue y Persistencia
+- name: "Airflow | [REMOTO] Borrar config antigua para evitar cache de Docker"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/10_base/airflow/webserver_config.py"
+    state: absent
+
+- name: "Airflow | Sincronizar Dockerfile y Templates"
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ platform_compose_dir }}/10_base/airflow/{{ item.dest }}"
+  loop:
+    - { src: 'docker-compose.yml.j2', dest: 'docker-compose.yml' }
+    - { src: 'env.j2', dest: '.env' }
+    - { src: 'webserver_config.py.j2', dest: 'webserver_config.py' }
+  register: _airflow_config_sync
+
+- name: "Airflow | Copiar Dockerfile"
+  ansible.builtin.copy:
+    src: Dockerfile
+    dest: "{{ platform_compose_dir }}/10_base/airflow/Dockerfile"
+  register: _airflow_dockerfile_sync
+
+- name: "Airflow | Levantar Stack (Forzando Recreación)"
+  ansible.builtin.command:
+    cmd: "docker compose -f {{ platform_compose_dir }}/10_base/airflow/docker-compose.yml up -d --build --remove-orphans --force-recreate"
+
+- name: "Airflow | Esperar estado Saludable (Healthy)"
+  ansible.builtin.command: "docker inspect -f '{% raw %}{{.State.Health.Status}}{% endraw %}' airflow_webserver_10_base"
+  register: _container_health
+  until: _container_health.stdout == "healthy"
+  retries: 30
+  delay: 15
+  changed_when: false
+
+- name: "Airflow | Eliminar DAGs antiguos/erróneos"
+  become: true
+  ansible.builtin.file:
+    path: "{{ platform_repo_dir }}/dags/04 data loader v3.py"
+    state: absent
+
+- name: "Airflow | Sincronizar directorio de DAGs"
+  ansible.builtin.copy:
+    src: "../../../../dags/"
+    dest: "{{ platform_repo_dir }}/dags/"
+    owner: "50000"
+    group: "0"
+    mode: '0644'
+    directory_mode: '0755'
+
+- name: "Airflow | Sincronizar directorio de Scripts"
+  ansible.builtin.copy:
+    src: "../../../../scripts/"
+    dest: "{{ platform_repo_dir }}/scripts/"
+    owner: "50000"
+    group: "0"
+    mode: '0755'
+    directory_mode: '0755'
+
+
+# FASE 3: TEJIDO DE CONEXIONES
+- name: "Airflow | Extraer llave pública del controlador"
+  delegate_to: localhost
+  run_once: true
+  ansible.builtin.shell: "ssh-keygen -y -f /home/aqinfra/pineapple/secrets/airflow_ssh/id_ed25519"
+  register: _airflow_pub_key
+  changed_when: false
+
+- name: "Airflow | Autorizar llave en nodos remotos"
+  delegate_to: "{{ item }}"
+  ansible.posix.authorized_key:
+    user: ansible
+    state: present
+    key: "{{ _airflow_pub_key.stdout }}"
+  loop:
+    - brain
+    - data
+    - compute
+    - ia
+    - trade
+
+- name: "Airflow | Limpiar y Registrar Conexiones"
+  ansible.builtin.shell: |
+    docker exec airflow_webserver_10_base python -c "from airflow.models.connection import Connection; from airflow.settings import Session; session=Session(); session.query(Connection).filter(Connection.conn_id == '{{ item.id }}').delete(synchronize_session=False); session.commit(); session.close()" || true
+    docker exec airflow_webserver_10_base airflow connections add {{ item.id }} \
+      --conn-type {{ item.type }} \
+      --conn-host {{ item.host }} \
+      {% if item.user is defined %}--conn-login '{{ item.user }}'{% endif %} \
+      {% if item.password is defined %}--conn-password '{{ item.password }}'{% endif %} \
+      {% if item.schema is defined %}--conn-schema '{{ item.schema }}'{% endif %} \
+      {% if item.port is defined %}--conn-port {{ item.port }}{% endif %} \
+      --conn-extra '{{ item.extra | default("{}") }}'
+  loop:
+    - { id: 'PROXMOX_BRAIN', type: 'ssh', host: '10.100.100.201', user: 'ansible', extra: '{"key_file": "/opt/airflow/secrets/id_ed25519", "no_host_key_check": true}' }
+    - { id: 'PROXMOX_DATA', type: 'ssh', host: '10.100.100.202', user: 'ansible', extra: '{"key_file": "/opt/airflow/secrets/id_ed25519", "no_host_key_check": true}' }
+    - { id: 'PROXMOX_COMPUTE', type: 'ssh', host: '10.100.100.203', user: 'ansible', extra: '{"key_file": "/opt/airflow/secrets/id_ed25519", "no_host_key_check": true}' }
+    - { id: 'PROXMOX_IA', type: 'ssh', host: '10.100.100.204', user: 'ansible', extra: '{"key_file": "/opt/airflow/secrets/id_ed25519", "no_host_key_check": true}' }
+    - { id: 'PROXMOX_TRADE', type: 'ssh', host: '10.100.100.205', user: 'ansible', extra: '{"key_file": "/opt/airflow/secrets/id_ed25519", "no_host_key_check": true}' }
+    - { id: 'TRADING_DB', type: 'postgres', host: '10.100.100.202', user: 'tsdb', password: '{{ postgres_password }}', schema: 'trading' }
+    - { id: 'PROMETHEUS_INFRA', type: 'http', host: '10.100.100.201', port: 9090 }
+    - { id: 'PORTAINER_MGMT', type: 'http', host: '10.100.100.201', port: 9443, extra: '{"verify_ssl": false}' }

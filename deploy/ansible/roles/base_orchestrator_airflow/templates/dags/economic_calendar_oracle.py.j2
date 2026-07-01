@@ -1,0 +1,81 @@
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+import psycopg2
+import requests
+import xml.etree.ElementTree as ET
+import os
+
+# Configuración
+DB_PARAMS = {
+    "host": "192.168.100.201",
+    "dbname": "trading",
+    "user": "tsdb",
+    "password": "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
+}
+
+# Usamos el feed de ForexFactory por su alta fiabilidad en eventos macro
+CALENDAR_URL = "https://www.forexfactory.com/ff_calendar_thisweek.xml"
+
+def fetch_economic_calendar():
+    conn = psycopg2.connect(**DB_PARAMS)
+    cur = conn.cursor()
+    
+    try:
+        r = requests.get(CALENDAR_URL, timeout=15)
+        root = ET.fromstring(r.content)
+        
+        for event in root.findall('event'):
+            title = event.find('title').text
+            country = event.find('country').text
+            date = event.find('date').text
+            time = event.find('time').text
+            impact = event.find('impact').text # High, Medium, Low
+            
+            # Solo nos interesan eventos de ALTO IMPACTO para la IA
+            if impact == 'High':
+                full_title = f"[MACRO] {country} - {title}"
+                # Intentar parsear la fecha
+                event_ts = datetime.strptime(f"{date} {time}", "%m-%d-%Y %I:%M%p")
+                
+                cur.execute(
+                    """INSERT INTO ai_news_events (title, content, source, symbol, sentiment_score, impact_level, ts) 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT DO NOTHING""",
+                    (
+                        full_title, 
+                        f"Evento Macroeconómico de impacto crítico en {country}.", 
+                        "ForexFactory",
+                        country, # Usamos el país como símbolo de referencia
+                        0.0,     # El enricher puede analizar la importancia después
+                        5,       # IMPACTO MÁXIMO
+                        event_ts
+                    )
+                )
+        print("✅ Calendario Económico actualizado.")
+    except Exception as e:
+        print(f"❌ Error descargando calendario: {e}")
+            
+    conn.commit()
+    cur.close()
+    conn.close()
+
+default_args = {
+    'owner': 'axio_quant',
+    'start_date': datetime(2026, 1, 1),
+    'retries': 2,
+    'retry_delay': timedelta(minutes=15),
+}
+
+with DAG(
+    'economic_calendar_oracle',
+    default_args=default_args,
+    description='Vigila los eventos macroeconómicos de alto impacto',
+    schedule_interval='@daily', # Se actualiza una vez al día para la semana
+    catchup: False
+) as dag:
+
+    t1 = PythonOperator(
+        task_id='fetch_calendar',
+        python_callable: fetch_economic_calendar,
+    )

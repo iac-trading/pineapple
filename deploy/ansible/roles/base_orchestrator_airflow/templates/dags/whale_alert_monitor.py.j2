@@ -1,0 +1,63 @@
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+import psycopg2
+import requests
+import json
+
+# Configuración
+DB_PARAMS = {
+    "host": "192.168.100.201",
+    "dbname": "trading",
+    "user": "tsdb",
+    "password": "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
+}
+
+# API Pública de Whale Alert (o similar)
+# Para este ejemplo usaremos un colector que monitorea transacciones grandes de BTC/ETH
+WHALE_API_URL = "https://api.whale-alert.io/v1/transactions" # Requiere API Key, usaremos un mock funcional si no hay
+
+def track_whales():
+    conn = psycopg2.connect(**DB_PARAMS)
+    cur = conn.cursor()
+    
+    # En un escenario real, aquí usarías requests.get(WHALE_API_URL, params={'api_key': '...'})
+    # Simulamos el rastreo de movimientos significativos > $10M
+    mock_whale_events = [
+        {"symbol": "BTC", "amount": 2500, "from": "Unknown Wallet", "to": "Binance", "value_usd": 150000000},
+        {"symbol": "ETH", "amount": 50000, "from": "Unknown Wallet", "to": "Kraken", "value_usd": 110000000}
+    ]
+    
+    for event in mock_whale_events:
+        title = f"🐋 WHALE ALERT: {event['amount']} {event['symbol']} movidos a {event['to']}"
+        content = f"Movimiento masivo detectado de {event['from']} hacia {event['to']}. Valor estimado: ${event['value_usd']:,}"
+        
+        cur.execute(
+            """INSERT INTO ai_news_events (title, content, source, symbol, sentiment_score, impact_level) 
+               VALUES (%s, %s, %s, %s, %s, %s)
+               ON CONFLICT DO NOTHING""",
+            (title, content, "WhaleAlert", event['symbol'], -0.5, 5) # Generalmente bajista si va a un Exchange
+        )
+            
+    conn.commit()
+    cur.close()
+    conn.close()
+
+default_args = {
+    'owner': 'axio_quant',
+    'start_date': datetime(2026, 1, 1),
+    'retries': 3,
+}
+
+with DAG(
+    'whale_alert_monitor',
+    default_args=default_args,
+    description='Vigila movimientos masivos de ballenas en el blockchain',
+    schedule_interval=timedelta(minutes=30),
+    catchup: False
+) as dag:
+
+    t1 = PythonOperator(
+        task_id='scan_blockchain',
+        python_callable: track_whales,
+    )

@@ -1,0 +1,63 @@
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+import psycopg2
+import requests
+import json
+import os
+
+# Configuración
+DB_PARAMS = {
+    "host": "192.168.100.201",
+    "dbname": "trading",
+    "user": "tsdb",
+    "password": "{{ lookup('env', 'POSTGRES_PASSWORD') }}"
+}
+OLLAMA_URL = "http://192.168.100.203:11434/api/generate"
+
+def enrich_news_sentiment():
+    conn = psycopg2.connect(**DB_PARAMS)
+    cur = conn.cursor()
+    
+    # Buscar noticias que aún no tengan sentimiento calculado (score = 0.0)
+    cur.execute("SELECT event_id, title, content FROM ai_news_events WHERE sentiment_score = 0.0 LIMIT 50")
+    rows = cur.fetchall()
+    
+    for rid, title, content in rows:
+        prompt = f"Analiza el sentimiento de esta noticia financiera. Responde SOLO con un número entre -1.0 (muy bajista) y 1.0 (muy alcista).\nNoticia: {title}\n{content}"
+        try:
+            r = requests.post(OLLAMA_URL, json={"model": "llama3:8b", "prompt": prompt, "stream": False}, timeout=60)
+            score_str = r.json().get("response", "0.0").strip()
+            # Limpiar el resultado por si la IA añade texto extra
+            score = float(''.join(c for c in score_str if c in '-.0123456789'))
+            
+            # Actualizar la base de datos
+            cur.execute("UPDATE ai_news_events SET sentiment_score = %s WHERE event_id = %s", (score, rid))
+            print(f"✅ Noticia {rid} enriquecida: {score}")
+        except Exception as e:
+            print(f"❌ Error enriqueciendo {rid}: {e}")
+            
+    conn.commit()
+    cur.close()
+    conn.close()
+
+default_args = {
+    'owner': 'axio_quant',
+    'depends_on_past': False,
+    'start_date': datetime(2026, 1, 1),
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    'ai_sentiment_enricher',
+    default_args=default_args,
+    description='Enriquece las noticias con sentimiento real usando Ollama',
+    schedule_interval=timedelta(hours=1),
+    catchup: False
+) as dag:
+
+    t1 = PythonOperator(
+        task_id='enrich_sentiment',
+        python_callable: enrich_news_sentiment,
+    )

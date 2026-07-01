@@ -1,0 +1,50 @@
+# =================================================================
+# 550 | Deploy Apache Airflow Stack & Provision Trading DAGs
+# =================================================================
+---
+- name: 550.1 | Brain | Desplegar Capa de Orquestación (Airflow)
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "airflow", "orchestrator" ]
+  roles:
+    - base_orchestrator_airflow
+
+- name: 550.2 | Brain | Copiar DAGs de Trading
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "airflow", "dags" ]
+  tasks:
+    - name: "Airflow | Detect dags source (A)"
+      ansible.builtin.stat:
+        path: "{{ platform_repo_dir }}/dags"
+      register: _dags_a
+
+    - name: "Airflow | Detect dags source (B)"
+      ansible.builtin.stat:
+        path: "{{ platform_repo_dir }}/platform/dags"
+      register: _dags_b
+
+    - name: "Airflow | Set dags source"
+      ansible.builtin.set_fact:
+        dags_src: >-
+          {{
+            (platform_repo_dir ~ '/dags') if _dags_a.stat.exists
+            else (platform_repo_dir ~ '/platform/dags') if _dags_b.stat.exists
+            else ''
+          }}
+
+    - name: "Airflow | Copy DAGs to Airflow dags folder"
+      ansible.builtin.copy:
+        src: "{{ dags_src }}/{{ item }}"
+        dest: "{{ platform_repo_dir }}/dags/{{ item }}"
+        owner: "50000"
+        group: "0"
+        mode: "0644"
+        remote_src: true
+      loop:
+        - "01_trading_operations_audit.py"
+        - "02_axio_backtest_orchestrator.py"
+        - "03_data_lakehouse_export.py"
+      when: dags_src | length > 0

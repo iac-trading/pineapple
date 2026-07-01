@@ -1,0 +1,121 @@
+# AXIO-QUANT | Orquestador de Grado Institucional
+# Configuración: CeleryExecutor con Redis & Postgres
+x-airflow-common-env: &airflow-common-env
+  AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+  AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+  AIRFLOW__CORE__FERNET_KEY: '{{ airflow_fernet_key }}'
+  AIRFLOW__CORE__TEST_CONNECTION: 'Enabled'
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+  AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+  AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+  AIRFLOW__CELERY__WORKER_CONCURRENCY: 32 # Optimizado para los 256GB de RAM
+  AIRFLOW__CORE__HOSTNAME_CALLABLE: 'airflow.utils.net.get_host_ip_address'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: airflow_postgres_10_base
+    restart: always # <-- CRÍTICO: Persistencia tras reinicio
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: airflow_redis_10_base
+    restart: always # <-- CRÍTICO: Persistencia tras reinicio
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  airflow-webserver:
+    build: .
+    container_name: airflow_webserver_10_base
+    restart: always # <-- CRÍTICO: Persistencia tras reinicio
+    command: webserver
+    user: "50000:0"
+    environment:
+      <<: *airflow-common-env
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - {{ platform_repo_dir }}/dags:/opt/airflow/dags
+      - {{ platform_root_dir }}/logs/airflow:/opt/airflow/logs
+      - {{ platform_repo_dir }}/scripts:/opt/airflow/scripts
+      - {{ platform_compose_dir }}/10_base/airflow/secrets:/opt/airflow/secrets:ro
+      - {{ platform_compose_dir }}/10_base/airflow/webserver_config.py:/opt/airflow/webserver_config.py:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  airflow-scheduler:
+    build: .
+    container_name: airflow_scheduler_10_base
+    restart: always # <-- CRÍTICO: Persistencia tras reinicio
+    command: scheduler
+    user: "50000:0"
+    environment:
+      <<: *airflow-common-env
+    env_file:
+      - .env
+    volumes:
+      - {{ platform_repo_dir }}/dags:/opt/airflow/dags
+      - {{ platform_root_dir }}/logs/airflow:/opt/airflow/logs
+      - {{ platform_repo_dir }}/scripts:/opt/airflow/scripts
+      - {{ platform_compose_dir }}/10_base/airflow/secrets:/opt/airflow/secrets:ro
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  airflow-worker:
+    build: .
+    container_name: airflow_worker_10_base
+    hostname: airflow_worker_10_base
+    restart: always
+    command: celery worker
+    user: "50000:0"
+    environment:
+      <<: *airflow-common-env
+    env_file:
+      - .env
+    volumes:
+      - {{ platform_repo_dir }}/dags:/opt/airflow/dags
+      - {{ platform_root_dir }}/logs/airflow:/opt/airflow/logs
+      - {{ platform_repo_dir }}/scripts:/opt/airflow/scripts
+      - {{ platform_compose_dir }}/10_base/airflow/secrets:/opt/airflow/secrets:ro
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  airflow-init:
+    build: .
+    container_name: airflow_init_10_base
+    user: "50000:0"
+    restart: on-failure # Solo reintenta si falla la inicialización inicial
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: 'admin'
+      _AIRFLOW_WWW_USER_PASSWORD: '{{ airflow_admin_password }}'
+    env_file:
+      - .env
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
