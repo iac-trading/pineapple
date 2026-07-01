@@ -75,7 +75,7 @@
 
     - name: "VERIFY | Bridge Logs for Shadow Execution"
       delegate_to: "{{ groups['trd'][0] }}"
-      shell: "docker logs bridge_provider --tail 50"
+      shell: "docker logs bridge_provider --tail 50 && docker logs bridge_provider_meanrev --tail 50"
       register: _bridge_logs
       failed_when: 
         - "'shadow_filled' not in (_bridge_logs.stdout + _bridge_logs.stderr).lower()"

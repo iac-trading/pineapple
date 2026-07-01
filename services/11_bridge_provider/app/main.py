@@ -84,9 +84,9 @@ class Bridge:
         if not NATS_URL:
             raise RuntimeError("NATS_URL missing")
         await self.nc.connect(servers=[NATS_URL])
-        await self.nc.subscribe(SUBMIT_SUBJECT, cb=self.on_order_submit)
-        await self.nc.subscribe("bridge.positions.get", cb=self.on_fetch_positions)
-        await self.nc.subscribe("bridge.balance.get", cb=self.on_get_balance)
+        await self.nc.subscribe(SUBMIT_SUBJECT, cb=self.on_order_submit, queue="bridge")
+        await self.nc.subscribe("bridge.positions.get", cb=self.on_fetch_positions, queue="bridge")
+        await self.nc.subscribe("bridge.balance.get", cb=self.on_get_balance, queue="bridge")
         logger.info(f"🚀 Bridge EMS Online. Listening {SUBMIT_SUBJECT}, bridge.positions.get & bridge.balance.get")
         logger.info("Bridge Provider: Rate limiter initialized.")
         await http_health_server()
