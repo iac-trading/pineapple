@@ -10,6 +10,13 @@
     test_instance_id: "{{ 999999999 | random | string | to_uuid }}"
 
   tasks:
+    - name: "SCHEMA | Clean up old test runs"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        DELETE FROM strategy_instances WHERE name = 'SHADOW_TEST' OR name = 'Recon Test Bot';"
+      ignore_errors: true
+
     - name: "SCHEMA | Check is_shadow in strategy_instances"
       delegate_to: "{{ groups['dat'][0] }}"
       shell: |
