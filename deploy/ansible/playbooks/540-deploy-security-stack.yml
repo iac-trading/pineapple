@@ -1,0 +1,12 @@
+# =================================================================
+# 540 | Deploy Security Stack (Infisical + Authentik)
+# =================================================================
+---
+- name: 540 | Brain | Despliegue de Stack de Seguridad (Infisical y Authentik)
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "security", "infisical", "authentik" ]
+
+  roles:
+    - base_security

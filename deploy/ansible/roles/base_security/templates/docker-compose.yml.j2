@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  # --- INFISICAL: Gestión de Secretos ---
+  infisical-db:
+    image: postgres:15-alpine
+    container_name: security_infisical_db
+    environment:
+      POSTGRES_USER: infisical
+      POSTGRES_PASSWORD: "{{ infisical_db_password | default('db_password_sec_2026') }}"
+      POSTGRES_DB: infisical
+    volumes:
+      - infisical-db-data:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - platform_network
+
+  infisical-redis:
+    image: redis:7-alpine
+    container_name: security_infisical_redis
+    restart: always
+    networks:
+      - platform_network
+
+  infisical:
+    image: infisical/infisical:latest
+    container_name: security_infisical_app
+    env_file: .env
+    ports:
+      - "8081:8080"
+    restart: always
+    command: sh -c "npm run migration:latest && npm run start"
+    environment:
+      NODE_ENV: "production"
+      DB_CONNECTION_URL: "postgresql://infisical:{{ infisical_db_password | default('db_password_sec_2026') }}@infisical-db:5432/infisical"
+      DATABASE_URL: "postgresql://infisical:{{ infisical_db_password | default('db_password_sec_2026') }}@infisical-db:5432/infisical"
+      DB_HOST: "infisical-db"
+      DB_USER: "infisical"
+      DB_PASSWORD: "{{ infisical_db_password | default('db_password_sec_2026') }}"
+      DB_NAME: "infisical"
+      DB_PORT: "5432"
+      REDIS_URL: "redis://infisical-redis:6379"
+      ENCRYPTION_KEY: "{{ infisical_encryption_key }}"
+      ROOT_ENCRYPTION_KEY: "{{ infisical_root_key }}"
+      AUTH_SECRET: "{{ infisical_auth_secret }}"
+      SITE_URL: "http://{{ ansible_host }}:8081"
+      # Configuración de Correo (Google)
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_USERNAME: "araya.martinez.rolando@gmail.com"
+      SMTP_PASSWORD: "uazyjjvwoyaiuotz"
+      SMTP_FROM_ADDRESS: "araya.martinez.rolando@gmail.com"
+      SMTP_FROM_NAME: "Axio-Quant Security"
+    depends_on:
+      - infisical-db
+      - infisical-redis
+    networks:
+      - platform_network
+
+  # --- AUTHENTIK: Gestión de Identidades ---
+  authentik-db:
+    image: postgres:15-alpine
+    container_name: security_authentik_db
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: "{{ authentik_db_password }}"
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik-db-data:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - platform_network
+
+  authentik-redis:
+    image: redis:7-alpine
+    container_name: security_authentik_redis
+    restart: always
+    networks:
+      - platform_network
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: security_authentik_server
+    command: server
+    env_file: .env
+    ports:
+      - "9333:9000"
+      - "9334:9443"
+    restart: always
+    environment:
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ authentik_db_password }}"
+      AUTHENTIK_SECRET_KEY: "{{ authentik_secret_key }}"
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    networks:
+      platform_network:
+        aliases:
+          - auth.axioquant.local
+          - authentik-server
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: security_authentik_worker
+    command: worker
+    env_file: .env
+    restart: always
+    environment:
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: "{{ authentik_db_password }}"
+      AUTHENTIK_SECRET_KEY: "{{ authentik_secret_key }}"
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    networks:
+      - platform_network
+
+  authentik-radius:
+    image: ghcr.io/goauthentik/radius:latest
+    container_name: security_authentik_radius
+    restart: unless-stopped
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    environment:
+      AUTHENTIK_HOST: "http://authentik-server:9000"
+      AUTHENTIK_INSECURE: "true"
+      AUTHENTIK_TOKEN: "tG7nXWwjRXp5cEYu2Agdy9f8YoO7T75Y1DnobPGT94lnZWVbY0l2FDwgbvrk"
+    networks:
+      - platform_network
+
+networks:
+  platform_network:
+    external: true
+    name: "{{ docker_network_name }}"
+
+volumes:
+  infisical-db-data:
+  authentik-db-data:

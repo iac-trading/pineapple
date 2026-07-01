@@ -1,0 +1,33 @@
+---
+- name: "base_security | 00 | Detect docker compose command (v2 or v1)"
+  command: "docker compose version"
+  register: docker_compose_v2_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "base_security | 01 | Set compose command fact"
+  set_fact:
+    docker_compose_bin: "{{ 'docker compose' if docker_compose_v2_check.rc == 0 else 'docker-compose' }}"
+
+- name: "base_security | 02 | Ensure 15_security directory exists"
+  file:
+    path: "/opt/platform/compose/15_security"
+    state: directory
+    mode: '0755'
+
+- name: "base_security | 03 | Render Security Stack compose"
+  template:
+    src: "docker-compose.yml.j2"
+    dest: "/opt/platform/compose/15_security/docker-compose.yml"
+    mode: '0644'
+
+- name: "base_security | 04 | Render secret .env file"
+  template:
+    src: "env.j2"
+    dest: "/opt/platform/compose/15_security/.env"
+    mode: '0600'
+
+- name: "base_security | 05 | Deploy Security Stack (Infisical + Authentik)"
+  shell: "cd /opt/platform/compose/15_security && {{ docker_compose_bin }} up -d"
+  register: security_stack_deploy
+  changed_when: "'Created' in security_stack_deploy.stdout or 'Started' in security_stack_deploy.stdout"
