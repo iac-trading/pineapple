@@ -41,7 +41,7 @@
            -d {{ postgres_db | default('trading') }} <<SQLEOF
     INSERT INTO strategy_instances (
         instance_id, blueprint_id, name, assigned_host,
-        symbol, broker, qty, params, market_subject,
+        symbol, broker, qty, params,
         desired_status, status, is_active
     ) VALUES (
         '{{ st_id_v3 }}',
@@ -52,7 +52,6 @@
         '{{ strat.broker }}',
         {{ strat.qty }},
         '{{ strat.params | to_json }}'::jsonb,
-        '{{ strat.md_subject | default("") }}',
         'running', 'stopped', TRUE
     )
     ON CONFLICT (instance_id) DO UPDATE SET 
@@ -61,7 +60,6 @@
         params = EXCLUDED.params,
         symbol = EXCLUDED.symbol,
         broker = EXCLUDED.broker,
-        market_subject = EXCLUDED.market_subject,
         desired_status = EXCLUDED.desired_status;
     SQLEOF
   args:
