@@ -127,3 +127,14 @@ telegram_chat_id: "{{ lookup('env', 'TELEGRAM_CHAT_ID') | default('dummy_telegra
 jupyter_admin: "admin"
 jupyter_password: "{{ lookup('env', 'JUPYTER_PASSWORD') | default('JupyterAdminPass2026!', true) }}"
 research_users: []
+
+# Proveedores de Trading (Bridges & Gateways)
+deriv_app_id: "{{ lookup('env', 'DERIV_APP_ID') | default('1010', true) }}"
+deriv_token: "{{ lookup('env', 'DERIV_TOKEN') | default('dummy_deriv_token_trend', true) }}"
+deriv_app_id_meanrev: "{{ lookup('env', 'DERIV_APP_ID_MEANREV') | default('1010', true) }}"
+deriv_token_meanrev: "{{ lookup('env', 'DERIV_TOKEN_MEANREV') | default('dummy_deriv_token_meanrev', true) }}"
+binance_api_key: "{{ lookup('env', 'BINANCE_API_KEY') | default('dummy_binance_key', true) }}"
+binance_secret: "{{ lookup('env', 'BINANCE_SECRET') | default('dummy_binance_secret', true) }}"
+bridge_health_port: 8085
+bridge_meanrev_health_port: 8889
+vnc_password: "vnc_password_2026"
