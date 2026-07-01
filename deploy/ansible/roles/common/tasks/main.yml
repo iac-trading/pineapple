@@ -1,0 +1,268 @@
+---
+# platform/deploy/ansible/roles/common/tasks/main.yml
+
+- name: 00 | Common | Define defaults (safe)
+  set_fact:
+    _common_timezone: "{{ system_timezone | default('America/Costa_Rica') }}"
+    _docker_shared_network: "{{ docker_network_name | default('platform_net') }}"
+    _common_user: "{{ platform_default_user | default('ansible') }}"
+  changed_when: false
+
+# -----------------------------
+# Timezone
+# -----------------------------
+- name: 01 | Common | Get current timezone
+  become: true
+  command: timedatectl show -p Timezone --value
+  register: _tz_current
+  changed_when: false
+  failed_when: false
+
+- name: 02 | Common | Set timezone
+  become: true
+  command: timedatectl set-timezone "{{ _common_timezone }}"
+  when: _tz_current.stdout is defined and _tz_current.stdout != _common_timezone
+
+# -----------------------------
+# APT: evitar colisiones de locks
+# -----------------------------
+- name: 03 | Common | Mask and stop apt timers/services temporarily
+  become: true
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - apt-daily.service
+    - apt-daily-upgrade.service
+  ignore_errors: true
+
+- name: 04 | Common | Stop unattended-upgrades temporarily
+  become: true
+  systemd:
+    name: unattended-upgrades
+    state: stopped
+  ignore_errors: true
+
+- name: "04.5 | Common | Kill stale apt-get processes holding dpkg lock"
+  become: true
+  shell: |
+    killall -9 apt 2>/dev/null || true
+    killall -9 apt-get 2>/dev/null || true
+    killall -9 dpkg 2>/dev/null || true
+    killall -9 unattended-upgr 2>/dev/null || true
+    sleep 3
+    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+    dpkg --configure -a 2>/dev/null || true
+  changed_when: false
+  ignore_errors: true
+
+# -----------------------------
+# Script Robusto de Espera de Locks
+# -----------------------------
+- name: 05 | Common | Install wait_apt_locks script
+  become: true
+  copy:
+    dest: /tmp/wait_apt_locks.py
+    mode: "0755"
+    content: |
+      #!/usr/bin/env python3
+      import os, sys, time, fcntl
+      LOCKS = ["/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/lock"]
+      def locks_free() -> bool:
+          for path in LOCKS:
+              try:
+                  fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+                  fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+              except (BlockingIOError, Exception): return False
+              else:
+                  fcntl.flock(fd, fcntl.LOCK_UN)
+                  os.close(fd)
+          return True
+      def main():
+          for i in range(1, 241):
+              if locks_free(): return 0
+              time.sleep(5)
+          return 1
+      if __name__ == "__main__": sys.exit(main())
+
+- name: 06 | Common | Wait for apt/dpkg locks (Pre-update)
+  become: true
+  command: python3 /tmp/wait_apt_locks.py
+  changed_when: false
+
+# -----------------------------
+# APT update y Paquetes Base
+# -----------------------------
+- name: 07 | Common | Update apt cache (robust)
+  become: true
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 600
+  register: _apt_update
+  retries: 10
+  delay: 15
+  until: _apt_update is succeeded
+
+- name: "07.5 | Common | Wait for apt/dpkg locks (Pre-install)"
+  become: true
+  command: python3 /tmp/wait_apt_locks.py
+  changed_when: false
+
+- name: 08 | Common | Install base packages (robust)
+  become: true
+  apt:
+    name: [ca-certificates, curl, gnupg, lsb-release, rsync, git, jq, unzip, apt-transport-https, python3-pip, chrony, htop]
+    state: present
+    lock_timeout: 600
+  register: _apt_base
+  retries: 10
+  delay: 15
+  until: _apt_base is succeeded
+
+- name: 09 | Common | Ensure chrony is enabled (NTP for Trading)
+  become: true
+  service:
+    name: chrony
+    state: started
+    enabled: true
+
+# -----------------------------------------------------------------
+# DOCKER & COMPOSE V2 (Instalación Blindada para los 4 Nodos)
+# -----------------------------------------------------------------
+
+- name: 10 | Common | Install Docker Engine
+  become: true
+  apt:
+    name: docker.io
+    state: present
+    update_cache: yes
+
+- name: 10.5 | Common | Ensure shared Docker network exists
+  become: true
+  community.docker.docker_network:
+    name: "{{ _docker_shared_network }}"
+    state: present
+    driver: bridge
+  register: _docker_net_creation
+  until: _docker_net_creation is succeeded
+  retries: 3
+  delay: 5
+
+# ELIMINAMOS LA TAREA 11 ANTERIOR (La que buscaba 'docker-compose-plugin')
+
+- name: 11 | Common | Asegurar directorios de plugins de Docker
+  become: true
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /usr/local/lib/docker/cli-plugins
+    - /usr/lib/docker/cli-plugins
+
+- name: 12 | Common | Descargar Docker Compose V2 (Plugin binario)
+  become: true
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/v2.30.0/docker-compose-linux-x86_64"
+    dest: /usr/local/lib/docker/cli-plugins/docker-compose
+    mode: "0755"
+  register: _download_compose
+  until: _download_compose is succeeded
+  retries: 5
+  delay: 10
+
+- name: 13 | Common | Crear enlace simbólico para compatibilidad
+  become: true
+  file:
+    src: /usr/local/lib/docker/cli-plugins/docker-compose
+    dest: /usr/lib/docker/cli-plugins/docker-compose
+    state: link
+    force: true
+
+- name: 14 | Common | Verificar Docker Compose CLI
+  become: true
+  command: docker compose version
+  register: _docker_compose_check
+  changed_when: false
+
+- name: 15 | Common | Verificar Docker Compose CLI
+  become: true
+  command: docker compose version
+  register: _docker_compose_check
+  changed_when: false
+
+# -----------------------------
+# Docker Hub Login (evitar rate-limit)
+# Credenciales en vault.yml: vault_dockerhub_user / vault_dockerhub_token
+# -----------------------------
+- name: 15.5 | Common | Docker Hub login (avoid pull rate-limit)
+  become: true
+  ansible.builtin.shell: |
+    echo "{{ dockerhub_token }}" | docker login -u "{{ dockerhub_user }}" --password-stdin
+  no_log: true
+  changed_when: false
+  when:
+    - dockerhub_user is defined
+    - dockerhub_token is defined
+    - (dockerhub_user | length) > 0
+
+# -----------------------------
+# MONITOREO (Node Exporter para Dashboard 256GB)
+# -----------------------------
+- name: 16 | Common | Deploy Node Exporter (Metrics Agent)
+  become: true
+  command: >
+    docker run -d --name node_exporter --restart always 
+    --net host --pid host -v "/:/host:ro,rslave" 
+    prom/node-exporter:latest --path.rootfs=/host
+  register: _node_exp
+  changed_when: false
+  failed_when: false
+
+- name: 16.5 | Common | Remove old cAdvisor (if exists)
+  become: true
+  command: docker rm -f cadvisor
+  failed_when: false
+  changed_when: false
+
+- name: 17 | Common | Deploy cAdvisor (Container Metrics Agent)
+  become: true
+  command: >
+    docker run -d --name cadvisor --restart always 
+    --privileged --device /dev/kmsg 
+    -p 8084:8080 
+    -v "/:/rootfs:ro" -v "/var/run:/var/run:ro" 
+    -v "/sys:/sys:ro" -v "/var/lib/docker/:/var/lib/docker:ro" 
+    -v "/dev/disk/:/dev/disk:ro" 
+    -v "/var/run/docker.sock:/var/run/docker.sock:ro"
+    gcr.io/cadvisor/cadvisor:v0.49.1
+  register: _cadvisor_exp
+  changed_when: false
+  failed_when: false
+
+- name: 18 | Common | Restore apt services and timers
+  become: true
+  systemd:
+    name: "{{ item }}"
+    masked: false
+    daemon_reload: yes
+  loop: 
+    - apt-daily.service
+    - apt-daily-upgrade.service
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  ignore_errors: true
+
+- name: 18 | Common | Start apt timers
+  become: true
+  systemd:
+    name: "{{ item }}"
+    state: started
+  loop: 
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  ignore_errors: true

@@ -1,0 +1,16 @@
+---
+# Bootstrap del admin en Airflow (crea el user si no existe)
+airflow_admin_bootstrap_enabled: true
+
+# Puerto del webserver expuesto en el host
+airflow_webserver_port: 8080
+
+# Credenciales (SIEMPRE desde vault.yml)
+airflow_admin_user: "{{ vault_airflow_admin_user }}"
+airflow_admin_password: "{{ vault_airflow_admin_password }}"
+
+# Metadata del usuario
+airflow_admin_firstname: "Admin"
+airflow_admin_lastname: "Admin"
+airflow_admin_role: "Admin"
+airflow_admin_email: "admin@local"

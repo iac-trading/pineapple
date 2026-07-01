@@ -1,0 +1,44 @@
+---
+# =============================================================================
+# group_vars/perimeter_router/main.yml
+# Variables no-secretas para el Cisco 1111-8P Perimeter Gateway
+# Las credenciales sensibles están en vault.yml (ansible-vault encrypt)
+# =============================================================================
+
+# ─── Interfaces ──────────────────────────────────────────────────────────────
+router_wan1_interface: "GigabitEthernet0/0/0"
+router_wan2_interface: "GigabitEthernet0/0/1"
+router_lan_interface:  "Vlan1"
+router_lan_ip:         "10.100.100.254"
+router_lan_prefix:     "255.255.255.0"
+router_lan_network:    "10.100.100.0"
+router_lan_wildcard:   "0.0.0.255"
+
+# ─── Hosts de la infraestructura ─────────────────────────────────────────────
+brain_host:    "10.100.100.201"   # Orchestrator (Grafana, Loki, NATS, Airflow)
+data_host:     "10.100.100.202"   # TimescaleDB
+compute_host:  "10.100.100.203"   # Factory Agent / Estrategias LIVE
+ia_host:       "10.100.100.204"   # AI Engine (Ollama)
+trade_host:    "10.100.100.205"   # Trading Gateways / Bridges
+
+# ─── Telemetría ───────────────────────────────────────────────────────────────
+netflow_port:  2055
+syslog_port:   514
+snmp_port:     161
+radius_auth_port: 1812
+radius_acct_port: 1813
+
+# ─── QoS ─────────────────────────────────────────────────────────────────────
+trading_qos_priority_pct:    30
+monitoring_qos_bandwidth_pct: 5
+
+# ─── IP SLA ──────────────────────────────────────────────────────────────────
+sla_target_wan1: "8.8.8.8"   # Google DNS via WAN1
+sla_target_wan2: "8.8.4.4"   # Google DNS via WAN2
+sla_frequency_sec: 10
+sla_threshold_ms:  500
+sla_timeout_ms:    2000
+
+# ─── Archive flash ───────────────────────────────────────────────────────────
+archive_path:    "bootflash:backups/cfg"
+archive_maximum: 10

@@ -1,0 +1,46 @@
+---
+# =============================================================================
+# group_vars/perimeter_router/vault.yml.example
+# PLANTILLA de variables secretas — NO commitear vault.yml sin encriptar.
+#
+# Para crear el vault real:
+#   cp vault.yml.example vault.yml
+#   # Editar con valores reales
+#   ansible-vault encrypt vault.yml
+# =============================================================================
+
+# Credenciales SSH / Enable del router
+vault_router_admin_user: "admin"
+vault_router_admin_pass: "CHANGE_ME_strong_password"
+vault_router_enable_pass: "CHANGE_ME_enable_secret"
+
+# RADIUS (autenticación AAA contra Brain .200)
+vault_radius_secret: "CHANGE_ME_radius_key"
+
+# SNMPv3
+vault_snmp_user: "monitor_user"
+vault_snmp_auth: "CHANGE_ME_auth_pass_sha"
+vault_snmp_priv: "CHANGE_ME_priv_pass_aes128"
+
+# FlexVPN IKEv2 Pre-Shared Key
+vault_vpn_psk: "CHANGE_ME_VPN_PSK_min32chars"
+
+# ─── NetFlow (ClickHouse en Data .201) ────────────────────────────────────
+vault_clickhouse_password: "CHANGE_ME_clickhouse_pass"
+
+# ─── LibreNMS NOC ─────────────────────────────────────────────────────────
+vault_librenms_admin_pass: "CHANGE_ME_librenms_admin_pass"
+vault_librenms_db_pass: "CHANGE_ME_librenms_db_pass"
+vault_librenms_db_root_pass: "CHANGE_ME_librenms_root_pass"
+# Generar con: python3 -c "import secrets, base64; print('base64:' + base64.b64encode(secrets.token_bytes(32)).decode())"
+vault_librenms_app_key: "base64:CHANGE_ME_base64_32byte_key"
+# Obtener desde: LibreNMS UI → My Account → API Access → Create API Token (user: oxidized_user)
+vault_librenms_api_token: "CHANGE_ME_after_first_deploy"
+
+
+
+# ─── Wazuh SOC ────────────────────────────────────────────────────────────
+vault_wazuh_admin_pass: "CHANGE_ME_SecureAdminPass_0!"
+vault_wazuh_api_user: "wazuh"
+vault_wazuh_api_pass: "CHANGE_ME_SecureApiPass_0!"
+

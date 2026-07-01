@@ -1,0 +1,14 @@
+---
+factory_agent_enabled: true
+
+# ===== Factory UI =====
+factory_ui_enabled: true
+factory_ui_port: 8501
+
+# Usa el endpoint dinámico del inventario (ver group_vars/all/main.yml)
+timescaledb_host: "{{ platform_endpoints.postgres_host }}"
+timescaledb_port: "{{ platform_endpoints.postgres_port }}"
+
+base_airflow_enabled: true
+base_airflow_web_port: 8080
+base_airflow_image: "apache/airflow:2.10.2"

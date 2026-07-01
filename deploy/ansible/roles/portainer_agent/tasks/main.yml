@@ -1,0 +1,45 @@
+---
+# deploy/ansible/roles/portainer_agent/tasks/main.yml
+
+- name: "portainer_agent | Ensure shared docker network exists"
+  community.docker.docker_network:
+    name: "{{ docker_shared_network | default('platform_net') }}"
+    state: present
+
+- name: "portainer_agent | Check if portainer_agent container exists"
+  community.docker.docker_container_info:
+    name: "{{ portainer_agent_container_name | default('portainer_agent') }}"
+  register: _pa_info
+
+- name: "portainer_agent | Remove container if wrong image"
+  community.docker.docker_container:
+    name: "{{ portainer_agent_container_name | default('portainer_agent') }}"
+    state: absent
+  register: _pa_removed
+  # Usamos los datos nativos del módulo info en lugar de un shell command
+  when: 
+    - _pa_info.exists 
+    - _pa_info.container.Config.Image != (portainer_agent_image | default('portainer/agent:latest'))
+
+- name: "portainer_agent | Run portainer agent"
+  community.docker.docker_container:
+    name: "{{ portainer_agent_container_name | default('portainer_agent') }}"
+    image: "{{ portainer_agent_image | default('portainer/agent:latest') }}"
+    state: started
+    restart_policy: always
+    networks:
+      - name: "{{ docker_shared_network | default('platform_net') }}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    ports:
+      - "{{ portainer_agent_port | default(9001) }}:9001"
+  when: (not _pa_info.exists) or (_pa_removed is changed)
+
+- name: "portainer_agent | Verify agent ping locally (HTTPS)"
+  command: "curl -k -fsS https://127.0.0.1:{{ portainer_agent_port | default(9001) }}/ping"
+  register: _agent_ping
+  until: _agent_ping is succeeded
+  retries: 10
+  delay: 5
+  changed_when: false

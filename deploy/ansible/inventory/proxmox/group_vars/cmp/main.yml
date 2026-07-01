@@ -1,0 +1,132 @@
+# ==============================================================================
+# CONFIGURACIÓN DEL NODO DE CÓMPUTO (CMP) - FACTORY V3
+# ==============================================================================
+
+# --- Identidad y Modelo del Agente ---
+instance_id: "{{ ansible_hostname }}"
+blueprint_id: "factory_standard_agent"
+broker: "ibkr"
+trading_mode: "live"
+
+# --- Configuración del Bridge IBKR (Variables faltantes) ---
+# Apunta al nodo de trading dedicado (VM-AQ-TRADE)
+ibkr_host: "10.100.100.205"
+ibkr_port: 4002
+ibkr_client_id: 1
+bridge_health_port: 8889
+bridge_meanrev_health_port: 8890
+
+# --- Deriv Contract Mode (bridge_provider = cuenta Tendencia R_25) ---
+# "binary"     → CALL/PUT opciones binarias, duración 5m (actual)
+# "multiplier" → MULTUP/MULTDOWN con SL/TP reales en USD
+deriv_contract_mode: "binary"
+deriv_multiplier: 10          # Apalancamiento (5, 10, 20, 50, 100)
+deriv_stop_loss_usd: 1.50     # Máxima pérdida por trade en USD
+deriv_take_profit_usd: 3.00   # Ganancia objetivo por trade en USD
+
+# --- Red y Puertos de Monitoreo ---
+ray_dashboard_port: 8265
+factory_agent_enabled: true
+repo_sync_enabled: true
+
+# --- Estrategias Activas ---
+# Para agregar una nueva estrategia, descomentar y ajustar:
+#   - id: <número>
+#     name: "<nombre>"
+#     folder: "<id>_<nombre>"
+#     timeframe: "tick"
+#     broker: "deriv"
+#     symbol: "R_75"
+#     md_subject: "md.deriv.R_75.tick"
+#     orders_subject: "orders.submit"
+#     qty: "1.0"
+#     params:
+#       key: "value"
+strategies_enabled:
+#  - id: 01
+#    name: "ttm_squeeze_spy"
+#    folder: "01_ttm_squeeze"
+#    symbol: "SPY"
+#    broker: "paper"
+#    md_subject: "md.yfinance.SPY.tick"
+#    orders_subject: "orders.intent"
+#    qty: "10"
+#    params:
+#      period: 20
+#      bb_mult: 2.0
+#      kc_mult: 1.5
+
+#  - id: 02
+#    name: "basis_arb_btc"
+#    folder: "02_cash_and_carry"
+#    symbol: "BTCUSDT"
+#    broker: "paper"
+#    md_subject: "md.binance.BTCUSDT.tick,md.binance.BTCUSDT-PERP.tick"
+#    orders_subject: "orders.intent"
+#    qty: "0.01"
+#    params:
+#      min_spread: 0.001
+#      lookback: 100
+
+#  - id: 03
+#    name: "pairs_btc_eth"
+#    folder: "03_pairs_trading" # Note: Folder rename might be needed to avoid confusion
+#    symbol: "BTC"
+#    broker: "paper"
+#    md_subject: "md.binance.BTC.tick,md.binance.ETH.tick"
+#    orders_subject: "orders.intent"
+#    qty: "0.01"
+#    params:
+#      symbol_a: "BTC"
+#      symbol_b: "ETH"
+#      z_entry: 2.5
+#      lookback: 1000
+
+  - id: 06
+    name: "donchian_hurst_r25"
+    folder: "06_hurst_donchian"
+    symbol: "R_25"
+    broker: "deriv_meanrev"
+    md_subject: "md.deriv.R_25.tick"
+    orders_subject: "orders.intent"
+    qty: "1.0"
+    params:
+      hurst_window: 100
+      donchian_p: 20
+      hurst_threshold: 0.50
+      timeframe_sec: 60
+
+#  - id: 07
+#    name: "step_index_canary"
+#    folder: "06_hurst_donchian"
+#    symbol: "stpRNG"
+#    broker: "deriv_meanrev"        # ← Usa el bridge $100 (modo multiplier)
+#    md_subject: "md.deriv.stpRNG.tick"
+#    orders_subject: "orders.intent"
+#    qty: "0.001"
+#    params:
+#      hurst_window: 100
+#      donchian_p: 20
+#      hurst_threshold: 0.55
+
+  # ── CUENTA $100: REVERSIÓN A LA MEDIA ────────────────────────
+#  - id: 08
+#    name: "bollinger_rsi_stepindex"
+#    folder: "08_bollinger_rsi"
+#    symbol: "stpRNG"
+#    broker: "deriv_meanrev"        # ← Enruta al bridge de la cuenta $100
+#    md_subject: "md.deriv.stpRNG.tick"
+#    orders_subject: "orders.intent"
+#    qty: "0.001"
+#    params:
+#      bb_period: 20
+#      bb_std: 2.0
+#      rsi_period: 14
+#      rsi_ob: 70.0
+#      rsi_os: 30.0
+#      rsi_exit: 50.0
+#      timeframe_sec: 300          # 5 minutos (ajustar a 900 para 15m)
+
+# --- Configuración de Sensores (Canary Pack) ---
+deriv_symbols: "R_75,R_25,stpRNG"
+tick_recorder_subjects: "md.deriv.R_75.tick,md.deriv.R_25.tick,md.deriv.stpRNG.tick"

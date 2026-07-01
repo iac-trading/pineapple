@@ -1,0 +1,6 @@
+---
+grafana_port: 3000
+prometheus_port: 9090
+alertmanager_port: 9093
+loki_port: 3100
+portainer_port_https: 9443

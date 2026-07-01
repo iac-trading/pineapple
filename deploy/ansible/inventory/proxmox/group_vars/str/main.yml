@@ -1,0 +1,8 @@
+---
+# NATS (client/monitor/route)
+nats_client_port: 4222
+nats_monitor_port: 8222
+nats_route_port: 6222
+
+# Redis
+redis_port: 6379

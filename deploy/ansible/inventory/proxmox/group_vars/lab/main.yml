@@ -1,0 +1,22 @@
+---
+# group_vars/lab/main.yml
+
+# --- Usuarios de JupyterHub ---
+research_users:
+  - name: "arquitecto_quant"
+    password: "{{ lookup('env', 'RESEARCH_USER_PASSWORD') | mandatory }}"
+    group: "researchers"
+
+# --- Backtester V3 ---
+backtester_enabled: true
+backtester_build_context: ""   # se autodetecta en tasks/main.yml
+
+# --- Backtest Worker ---
+backtest_worker_enabled: true
+backtest_worker_build_context: ""  # se autodetecta en tasks/main.yml
+
+# --- IA Local (Ollama + MCP) ---
+local_ai_enabled: true
+ollama_port: 11434
+mcp_bridge_port: 8000
+ai_model_default: "llama3:8b"

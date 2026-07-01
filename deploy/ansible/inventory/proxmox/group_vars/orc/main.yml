@@ -1,0 +1,6 @@
+---
+# Airflow UI
+airflow_web_port: 8080
+
+# Executor por defecto (Celery con broker Redis remoto)
+airflow_executor: "CeleryExecutor"

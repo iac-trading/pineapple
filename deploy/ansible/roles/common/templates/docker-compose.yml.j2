@@ -1,0 +1,42 @@
+version: "3.9"
+
+networks:
+  {{ docker_network_name }}:
+    external: true
+
+services:
+  portainer_agent:
+    image: portainer/agent:2.20.3
+    container_name: portainer_agent_00_common
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: node_exporter_00_common
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "9100:9100"
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - "/:/host:ro,rslave"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor_00_common
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "8084:8080"   # Evita colisión con Airflow 8080
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro

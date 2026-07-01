@@ -1,0 +1,129 @@
+# SMTP configuration for EDA email alerts
+alert_smtp_from: "araya.martinez.rolando@gmail.com"
+alert_smtp_smarthost: "smtp.gmail.com"
+alert_smtp_user: "araya.martinez.rolando@gmail.com"
+# La contraseña se lee del entorno para mayor seguridad
+alert_smtp_password: "{{ lookup('env', 'ALERT_SMTP_PASSWORD') | default(lookup('env', 'SMTP_PASSWORD'), true) }}"
+# Opcional: separar host y puerto
+alert_smtp_port: 587
+alert_email_recipient: "araya.martinez.rolando@gmail.com"
+platform_root_dir: "/opt/platform" # Directorio raíz de la plataforma
+platform_repo_dir: "/home/ansible/platform" # Directorio del repositorio
+platform_compose_dir: "/opt/platform/compose" # Ruta base para despliegues Docker
+docker_network_name: "infra-trade" # Nombre de la red Docker compartida
+docker_shared_network: "infra-trade" # Alias para compatibilidad de roles
+repo_sync_enabled: true
+wazuh_admin_password: "{{ lookup('env', 'WAZUH_ADMIN_PASS') | mandatory }}"
+
+# Integración Authentik SSO
+wazuh_authentik_client_id: "{{ lookup('env', 'WAZUH_AUTHENTIK_CLIENT_ID') | default('wazuh-dashboard', true) }}"
+wazuh_authentik_client_secret: "{{ lookup('env', 'WAZUH_AUTHENTIK_CLIENT_SECRET') | mandatory }}"
+wazuh_authentik_well_known_url: "https://auth.axioquant.local/application/o/wazuh/.well-known/openid-configuration"
+
+# Integración NetBox SSO con Authentik
+netbox_authentik_client_id: "{{ lookup('env', 'NETBOX_OIDC_CLIENT_ID') | mandatory }}"
+netbox_authentik_client_secret: "{{ lookup('env', 'NETBOX_OIDC_CLIENT_SECRET') | mandatory }}"
+netbox_authentik_url: "https://auth.axioquant.local/application/o/netbox/"
+
+# Configuración de Seguridad (Valores OBLIGATORIOS desde Infisical)
+authentik_secret_key: "{{ lookup('env', 'AUTHENTIK_SECRET_KEY') | mandatory }}"
+authentik_db_password: "{{ lookup('env', 'AUTHENTIK_DB_PASSWORD') | mandatory }}"
+infisical_encryption_key: "{{ lookup('env', 'INFISICAL_ENCRYPTION_KEY') | mandatory }}"
+infisical_root_key: "{{ lookup('env', 'INFISICAL_ROOT_KEY') | mandatory }}"
+infisical_auth_secret: "{{ lookup('env', 'INFISICAL_AUTH_SECRET') | mandatory }}"
+
+# Configuración de Sincronización
+repo_sync_dest: "/home/ansible/platform"
+repo_sync_src: "/home/ansible/platform"
+ansible_host_brain: "10.100.100.201"
+ansible_host_data: "10.100.100.202"
+
+# Endpoints de la Plataforma
+platform_endpoints:
+  postgres_host: "10.100.100.202"
+  postgres_port: 5432
+  nats_host: "10.100.100.201"
+  nats_url: "nats://{{ nats_user }}:{{ nats_password }}@10.100.100.201:4222"
+
+# Puertos de Infraestructura
+nats_client_port: 4222
+nats_monitor_port: 8222
+nats_route_port: 6222
+redis_port: 6379
+redis_url: "redis://10.100.100.201:6379"
+postgres_port: 5432
+postgres_host: "10.100.100.202"
+
+# Interactive Brokers (IBKR)
+ibkr_user: "{{ lookup('env', 'IBKR_USER') | default('edemo', true) }}"
+ibkr_password: "{{ lookup('env', 'IBKR_PASSWORD') | default('demouser', true) }}"
+ibkr_port: 4001
+ibkr_client_id: 1
+
+# Credenciales de Infraestructura (NATS/Redis)
+nats_user: "{{ lookup('env', 'NATS_USER') | default('nats_admin', true) }}"
+nats_password: "{{ lookup('env', 'NATS_PASSWORD') | mandatory }}"
+nats_host: "10.100.100.201"
+nats_port: 4222
+nats_url: "nats://{{ nats_user }}:{{ nats_password }}@{{ nats_host }}:{{ nats_port }}"
+
+# Puertos de Monitorización
+prometheus_port: 9090
+grafana_port: 3000
+loki_port: 3100
+alertmanager_port: 9093
+cadvisor_port: 8084
+portainer_port_https: 9443
+
+# Mapeo de Infraestructura para Prometheus/Monitoring
+infra_hosts:
+  nats: "VM-AQ-BRAIN"
+  postgres: "VM-AQ-DATA"
+  execution: "VM-AQ-COMPUTE"
+  ia: "VM-AQ-IA"
+  trade: "VM-AQ-TRADE"
+
+# Configuración de Alertas (Valores por defecto)
+alert_whatsapp_phone: "+521234567890"
+alert_whatsapp_apikey: "dummy_apikey"
+alert_telegram_token: "dummy_token"
+alert_telegram_chat_id: "dummy_id"
+
+# Configuración SNMP (Router Monitoring)
+snmp_user: "{{ lookup('env', 'SNMP_USER') | default('snmp-monitor', true) }}"
+snmp_auth_pass: "{{ lookup('env', 'SNMP_AUTH') | mandatory }}"
+snmp_priv_pass: "{{ lookup('env', 'SNMP_PRIV') | mandatory }}"
+
+# Configuración Grafana
+grafana_admin_user: "admin"
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASS') | mandatory }}"
+grafana_authentik_id: "grafana-sso"
+grafana_authentik_secret: "dummy_secret"
+
+# Configuración Airflow
+airflow_executor: "CeleryExecutor"
+airflow_fernet_key: "{{ lookup('env', 'AIRFLOW_FERNET_KEY') | mandatory }}"
+airflow_admin_user: "admin"
+airflow_admin_password: "{{ lookup('env', 'AIRFLOW_ADMIN_PASSWORD') | mandatory }}"
+
+# --- SSO / Authentik Tokens ---
+factory_ui_authentik_token: "{{ lookup('env', 'FACTORY_UI_AUTHENTIK_TOKEN') | default('') }}"
+
+# Configuración de Base de Datos (Data Node)
+postgres_user: "{{ lookup('env', 'POSTGRES_USER') | default('tsdb', true) }}"
+postgres_password: "{{ lookup('env', 'POSTGRES_PASSWORD') | mandatory }}"
+postgres_db: "trading"
+
+# Configuración ClickHouse
+clickhouse_user: "default"
+clickhouse_password: "{{ lookup('env', 'CLICKHOUSE_PASSWORD') | mandatory }}"
+clickhouse_db: "default"
+
+# Configuración de Alertas y Notificaciones (Telegram)
+telegram_token: "{{ lookup('env', 'TELEGRAM_TOKEN') | default('dummy_telegram_token', true) }}"
+telegram_chat_id: "{{ lookup('env', 'TELEGRAM_CHAT_ID') | default('dummy_telegram_chat_id', true) }}"
+
+# Configuración Research Hub (Jupyter)
+jupyter_admin: "admin"
+jupyter_password: "{{ lookup('env', 'JUPYTER_PASSWORD') | mandatory }}"
+research_users: []
