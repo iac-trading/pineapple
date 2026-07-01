@@ -1,0 +1,62 @@
+- name: "Risk Engine | Repo sync (controller -> VM)"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: repo_sync_enabled | default(true) | bool
+
+- name: "Risk Engine | Detect source path option A"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/services/risk_engine"
+  register: _re_src_a
+
+- name: "Risk Engine | Detect source path option B"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/platform/services/risk_engine"
+  register: _re_src_b
+
+- name: "Risk Engine | Set build context path"
+  ansible.builtin.set_fact:
+    risk_engine_src_path: >-
+      {{
+        (platform_repo_dir ~ '/services/risk_engine') if _re_src_a.stat.exists
+        else (platform_repo_dir ~ '/platform/services/risk_engine') if _re_src_b.stat.exists
+        else ''
+      }}
+
+- name: "Risk Engine | Fail if source not found"
+  ansible.builtin.fail:
+    msg: "No se encontró el directorio de risk_engine en {{ platform_repo_dir }}"
+  when: risk_engine_src_path | length == 0
+
+- name: "Risk Engine | Ensure service directory"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/risk_engine"
+    state: directory
+    mode: "0755"
+
+- name: "Risk Engine | Copy Dockerfile and app"
+  ansible.builtin.copy:
+    src: "{{ risk_engine_src_path }}/"
+    dest: "{{ platform_compose_dir }}/risk_engine/"
+    mode: "0644"
+    remote_src: true
+
+- name: "Risk Engine | Render bridge compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/risk_engine/docker-compose.yml"
+    mode: "0644"
+
+- name: "Risk Engine | Deploy with Docker Compose"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - -f
+      - "{{ platform_compose_dir }}/risk_engine/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  args:
+    chdir: "{{ platform_compose_dir }}/risk_engine"
+  register: _risk_up
+  changed_when: "'Recreating' in (_risk_up.stdout | default('')) or 'Creating' in (_risk_up.stdout | default('')) or 'Building' in (_risk_up.stdout | default(''))"

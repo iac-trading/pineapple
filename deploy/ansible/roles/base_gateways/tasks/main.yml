@@ -1,0 +1,16 @@
+---
+- name: Crear directorio para IBKR Gateway
+  file:
+    path: "/opt/platform/gateways/ibkr"
+    state: directory
+    mode: '0755'
+
+- name: Desplegar Docker Compose de IBKR
+  template:
+    src: ibkr-compose.yml.j2
+    dest: "/opt/platform/gateways/ibkr/docker-compose.yml"
+
+- name: Levantar IBKR Gateway
+  community.docker.docker_compose_v2:
+    project_src: "/opt/platform/gateways/ibkr"
+    state: present

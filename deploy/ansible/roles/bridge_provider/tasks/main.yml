@@ -1,0 +1,87 @@
+---
+- name: "00 | bridge_provider | Ensure 11_bridge_provider dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/11_bridge_provider/bridge"
+    state: directory
+    mode: "0755"
+
+- name: "01 | bridge_provider | Repo sync (controller -> VM) if enabled"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: repo_sync_enabled | bool
+
+- name: "02 | bridge_provider | Render bridge .env"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/11_bridge_provider/bridge/.env"
+    mode: "0600"
+
+# ----------------------------
+# Detect build context inside the synced repo
+# ----------------------------
+- name: "03 | bridge_provider | Detect bridge source path option A (no nested platform/)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/services/11_bridge_provider"
+  register: _bp_src_a
+
+- name: "04 | bridge_provider | Detect bridge source path option B (nested platform/)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/platform/services/11_bridge_provider"
+  register: _bp_src_b
+
+- name: "05 | bridge_provider | Set bridge build context path"
+  ansible.builtin.set_fact:
+    bridge_provider_build_context: >-
+      {{
+        (platform_repo_dir ~ '/services/11_bridge_provider') if _bp_src_a.stat.exists
+        else (platform_repo_dir ~ '/platform/services/11_bridge_provider') if _bp_src_b.stat.exists
+        else ''
+      }}
+
+- name: "06 | bridge_provider | Fail if bridge source directory not found in repo"
+  ansible.builtin.fail:
+    msg: >-
+      No se encontró el directorio del bridge para build.
+      Probé:
+      - {{ platform_repo_dir }}/services/11_bridge_provider
+      - {{ platform_repo_dir }}/platform/services/11_bridge_provider
+
+      Verifica qué estructura quedó sincronizada en {{ platform_repo_dir }}.
+      Tip: en la VM ejecuta: ls -la {{ platform_repo_dir }} ; ls -la {{ platform_repo_dir }}/services
+  when: bridge_provider_build_context | length == 0
+
+- name: "07 | bridge_provider | Render bridge compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/11_bridge_provider/bridge/docker-compose.yml"
+    mode: "0644"
+
+- name: "08 | bridge_provider | Wait for Docker daemon"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+  register: _docker_info
+  retries: 30
+  delay: 2
+  until: _docker_info.rc == 0
+  changed_when: false
+
+- name: "09 | bridge_provider | Deploy bridge provider (compose up)"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --env-file
+      - "{{ platform_compose_dir }}/11_bridge_provider/bridge/.env"
+      - -f
+      - "{{ platform_compose_dir }}/11_bridge_provider/bridge/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  environment:
+    COMPOSE_BAKE: "0"
+  register: _bridge_up
+  changed_when: "'Recreating' in (_bridge_up.stdout | default('')) or 'Creating' in (_bridge_up.stdout | default('')) or 'Building' in (_bridge_up.stdout | default(''))"

@@ -1,0 +1,31 @@
+version: "3.9"
+
+networks:
+  {{ docker_network_name }}:
+    external: true
+
+x-bridge-common: &bridge-common
+  build:
+    context: "{{ bridge_provider_build_context }}"
+services:
+  bridge_provider:
+    build:
+      context: "{{ bridge_provider_build_context }}"
+      dockerfile: Dockerfile
+    container_name: bridge_provider
+    restart: unless-stopped
+    env_file: [ ".env" ]
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks: [ "{{ docker_network_name }}" ]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:{{ bridge_health_port }}/health\")'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: ["python", "-m", "app.main"]

@@ -1,0 +1,23 @@
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: ibkr_bridge
+    restart: always
+    environment:
+      # Credenciales comentadas para evitar errores de variable indefinida
+      # TWS_USERID: edemo
+      # TWS_PASSWORD: demouser
+      - TRADING_MODE=paper
+      # ESTA LÍNEA ES VITAL PARA QUE EL CEREBRO (.200) Y LOS CONTENEDORES NO SEAN RECHAZADOS:
+      - TWS_TRUSTED_IPS=127.0.0.1,192.168.100.0/24,10.100.100.0/24,172.16.0.0/12
+      - VNC_SERVER_PASSWORD={{ vnc_password | default('vnc_password_2026', true) }}
+    ports:
+      - "4001:4001" # API
+      - "4003:4003" # NoVNC (Acceso vía Navegador)
+      - "5900:5900" # VNC Classic (Para RealVNC)
+    networks:
+      - {{ docker_network_name | default('infra-trade', true) }}
+
+networks:
+  {{ docker_network_name | default('infra-trade', true) }}:
+    external: true

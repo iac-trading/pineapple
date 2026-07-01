@@ -1,0 +1,16 @@
+# =================================================================
+# 560 | Deploy Broker Bridge Providers & Gateways
+# =================================================================
+---
+- name: 560 | Trade | Ejecución LIVE y Puentes de Broker
+  hosts: trade
+  become: true
+  gather_facts: true
+  tags: [ "bridge", "gateways", "execution" ]
+
+  roles:
+    - { role: repo_sync, tags: ["repo_sync"] }
+    - bridge_provider
+    - bridge_provider_meanrev
+    - risk_engine
+    - base_gateways

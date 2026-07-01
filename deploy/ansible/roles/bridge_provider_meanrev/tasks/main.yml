@@ -1,0 +1,42 @@
+---
+# ==============================================================================
+# ROLE: bridge_provider_meanrev
+# Deploys a second bridge_provider container connected to the $100 Mean Reversion
+# Deriv account (Step Index). Isolated from the Trend account ($50, R_10).
+# ==============================================================================
+
+- name: "00 | bridge_provider_meanrev | Ensure compose dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/bridge_provider_meanrev"
+    state: directory
+    mode: "0755"
+  tags: ["bridge_provider_meanrev", "bridge_meanrev"]
+
+- name: "01 | bridge_provider_meanrev | Render env file"
+  ansible.builtin.template:
+    src: env_meanrev.j2
+    dest: "{{ platform_compose_dir }}/bridge_provider_meanrev/.env"
+    mode: "0600"
+  tags: ["bridge_provider_meanrev", "bridge_meanrev"]
+
+- name: "02 | bridge_provider_meanrev | Render docker-compose"
+  ansible.builtin.template:
+    src: docker-compose-meanrev.yml.j2
+    dest: "{{ platform_compose_dir }}/bridge_provider_meanrev/docker-compose.yml"
+    mode: "0644"
+  tags: ["bridge_provider_meanrev", "bridge_meanrev"]
+
+- name: "03 | bridge_provider_meanrev | Deploy"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - -f
+      - "{{ platform_compose_dir }}/bridge_provider_meanrev/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  register: _bridge_meanrev_up
+  changed_when: "'Recreating' in (_bridge_meanrev_up.stdout | default('')) or 'Creating' in (_bridge_meanrev_up.stdout | default('')) or 'Building' in (_bridge_meanrev_up.stdout | default(''))"
+  tags: ["bridge_provider_meanrev", "bridge_meanrev"]

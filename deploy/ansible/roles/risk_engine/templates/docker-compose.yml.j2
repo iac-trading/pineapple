@@ -1,0 +1,30 @@
+version: "3.9"
+
+networks:
+  {{ docker_network_name }}:
+    external: true
+
+services:
+  risk_engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: risk_engine
+    restart: unless-stopped
+    networks:
+      - {{ docker_network_name }}
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NATS_URL={{ nats_url | default('nats://nats:4222') }}
+      - POSTGRES_HOST={{ postgres_host }}
+      - POSTGRES_PORT={{ postgres_port }}
+      - POSTGRES_DB={{ postgres_db }}
+      - POSTGRES_USER={{ postgres_user }}
+      - POSTGRES_PASSWORD={{ postgres_password }}
+      - MAX_QTY_PER_ORDER=100.0
+      - MAX_ORDERS_PER_SEC=10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

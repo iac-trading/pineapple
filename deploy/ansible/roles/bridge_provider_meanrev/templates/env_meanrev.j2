@@ -1,0 +1,21 @@
+# FILE: deploy/ansible/roles/bridge_provider_meanrev/templates/env_meanrev.j2
+# Environment for the Mean Reversion bridge ($100 Step Index account)
+
+# Connectivity
+NATS_URL={{ platform_endpoints.nats_url | default(lookup('env', 'NATS_URL'), true) | default('nats://192.168.100.200:4222', true) }}
+REDIS_URL={{ redis_url | default(lookup('env', 'REDIS_URL'), true) | default('redis://192.168.100.200:6379', true) }}
+
+# Postgres
+POSTGRES_HOST={{ platform_endpoints.postgres_host | default(lookup('env', 'POSTGRES_HOST'), true) }}
+POSTGRES_PORT={{ platform_endpoints.postgres_port | default(lookup('env', 'POSTGRES_PORT'), true) }}
+POSTGRES_DB={{ postgres_db | default(lookup('env', 'POSTGRES_DB'), true) | default('factory_db', true) }}
+POSTGRES_USER={{ postgres_user | default(lookup('env', 'POSTGRES_USER'), true) | default('factory_user', true) }}
+POSTGRES_PASSWORD={{ postgres_password | default(lookup('env', 'POSTGRES_PASSWORD'), true) }}
+
+# Deriv — Mean Reversion Account ($100, Step Index)
+DERIV_APP_ID={{ deriv_app_id_meanrev | default(lookup('env', 'DERIV_APP_ID_MEANREV'), true) }}
+DERIV_TOKEN={{ deriv_token_meanrev | default(lookup('env', 'DERIV_TOKEN_MEANREV'), true) }}
+DERIV_SYMBOLS={{ deriv_symbols_meanrev | default(lookup('env', 'DERIV_SYMBOLS_MEANREV'), true) | default("Step Index", true) }}
+
+# Health
+HEALTH_PORT={{ bridge_meanrev_health_port | default(lookup('env', 'HEALTH_PORT_MEANREV'), true) | default(8889, true) }}
