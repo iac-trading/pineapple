@@ -1,0 +1,18 @@
+# Configuración NATS Server - Nodo BRAIN
+port: 4222
+monitor_port: 8222
+
+# Límites de performance para 256GB RAM
+max_payload: 1MB
+max_connections: 5000
+
+# Seguridad de Acceso
+authorization {
+  user: "{{ nats_user }}"
+  password: "{{ nats_password }}"
+  timeout: 5
+}
+
+# Logs
+debug: false
+trace: false

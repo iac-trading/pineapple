@@ -1,0 +1,55 @@
+version: "3.9"
+
+networks:
+  {{ docker_network_name }}:
+    external: true
+
+services:
+  nats:
+    image: nats:2.10.20
+    container_name: nats_10_base
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "{{ nats_client_port }}:4222"
+      - "8223:8223"
+      - "{{ nats_route_port }}:6222"
+    command:
+      - -js
+      - -m
+      - "8223"
+{% if nats_user is defined and nats_password is defined %}
+      - --user
+      - "{{ nats_user }}"
+      - --pass
+      - "{{ nats_password }}"
+{% endif %}
+
+  nats_exporter:
+    image: natsio/prometheus-nats-exporter:0.15.0
+    container_name: nats_exporter_10_base
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "8222:8222"
+    command:
+      - -port
+      - "8222"
+      - -connz
+      - -routez
+      - -subz
+      - -varz
+      - http://nats:8223
+
+  redis:
+    image: redis:7.2.5
+    container_name: redis_10_base
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    ports:
+      - "{{ redis_port }}:6379"
+{% if redis_password is defined %}
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "{{ redis_password }}"]
+{% else %}
+    command: ["redis-server", "--appendonly", "yes"]
+{% endif %}

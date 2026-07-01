@@ -1,0 +1,13 @@
+# =================================================================
+# 530 | Deploy NATS Messaging Broker
+# =================================================================
+---
+- name: 530 | Deploy NATS Messaging Broker
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "messaging", "nats" ]
+
+  roles:
+    - { role: repo_sync, tags: ["repo_sync"] }
+    - { role: base_messaging, tags: ["base_messaging"] }
