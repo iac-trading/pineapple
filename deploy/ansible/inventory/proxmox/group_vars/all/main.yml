@@ -28,8 +28,8 @@ netbox_authentik_url: "https://auth.axioquant.local/application/o/netbox/"
 # Configuración de Seguridad (Valores OBLIGATORIOS desde Infisical)
 authentik_secret_key: "{{ lookup('env', 'AUTHENTIK_SECRET_KEY') | default('e3ff17ddfd4b4638a5a07d87fdd15366ce0fc9c92dc5bfe814502bb4230273a4', true) }}"
 authentik_db_password: "{{ lookup('env', 'AUTHENTIK_DB_PASSWORD') | default('AuthentikDBPass2026!', true) }}"
-infisical_encryption_key: "{{ lookup('env', 'INFISICAL_ENCRYPTION_KEY') | default('3809819833dbf1f40d9ee10f0f537ba55b498c4f3f918588cd4aa1d6e2b8d1f2', true) }}"
-infisical_root_key: "{{ lookup('env', 'INFISICAL_ROOT_KEY') | default('6f8823b55dd97bd7fb0975d33d8f0b2f0a0d27cdea5f253241e51247bfcf9a05', true) }}"
+infisical_encryption_key: "{{ lookup('env', 'INFISICAL_ENCRYPTION_KEY') | default('a8ca55815eed5b5bc53bbd2074833db3', true) }}"
+infisical_root_key: "{{ lookup('env', 'INFISICAL_ROOT_KEY') | default('e0f137b2c1ca881d101fed8279f37458', true) }}"
 infisical_auth_secret: "{{ lookup('env', 'INFISICAL_AUTH_SECRET') | default('629e59702142767c4fead5ab222e6ad54c47f27c2807447e550c898d7f2cad3f', true) }}"
 
 # Configuración de Sincronización
