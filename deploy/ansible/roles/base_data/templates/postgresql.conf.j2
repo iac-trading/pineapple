@@ -1,0 +1,51 @@
+# =================================================================
+# POSTGRESQL CONFIG - FACTORY V2.0 (OPTIMIZADO 96GB RAM / 256GB TOTAL)
+# =================================================================
+
+# --- Conectividad ---
+listen_addresses = '*'
+max_connections = 500                  # Soporte para múltiples estrategias y workers
+port = 5432
+
+# --- Gestión de Memoria (Variables Dinámicas) ---
+# Se utiliza el 25% de la RAM para buffers compartidos
+shared_buffers = {{ db_shared_buffers }} 
+# Ayuda al planificador de queries a entender qué hay en RAM (75% de la RAM del nodo)
+effective_cache_size = {{ db_effective_cache_size }} 
+
+# Memoria para operaciones de ordenamiento (por cada worker)
+work_mem = 128MB
+# Memoria para tareas de mantenimiento (Indexación de TimescaleDB)
+maintenance_work_mem = 2GB
+
+# --- Write Ahead Log (WAL) ---
+wal_level = logical                    # Para posible replicación futura
+checkpoint_timeout = 15min
+max_wal_size = 4GB
+min_wal_size = 1GB
+
+# --- Paralelismo (Ajustado a tus 16 vCPUs) ---
+max_worker_processes = 20
+max_parallel_workers_per_gather = 8
+max_parallel_workers = 16
+max_parallel_maintenance_workers = 4
+
+# --- Optimización TimescaleDB ---
+timescaledb.max_background_workers = 12
+timescaledb.telemetry_level = off
+
+# --- Localización ---
+timezone = '{{ system_timezone }}'
+log_timezone = '{{ system_timezone }}'
+datestyle = 'iso, mdy'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+
+# --- Logs de Rendimiento ---
+log_min_duration_statement = 500       # Loguear queries que tarden más de 500ms
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_lock_waits = on

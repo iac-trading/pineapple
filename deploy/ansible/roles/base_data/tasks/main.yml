@@ -1,0 +1,246 @@
+---
+- name: "00 | base_data | Detect docker compose command (v2 or v1)"
+  ansible.builtin.shell: |
+    set -e
+    if docker compose version >/dev/null 2>&1; then
+      echo "docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+      echo "docker-compose"
+    else
+      echo "none"
+    fi
+  register: _compose_cmd
+  changed_when: false
+
+- name: "01 | base_data | Fail if Docker Compose is not available"
+  ansible.builtin.fail:
+    msg: "Docker Compose no está disponible en el host."
+  when: _compose_cmd.stdout == "none"
+
+- name: "02 | base_data | Set compose command fact"
+  ansible.builtin.set_fact:
+    docker_compose_cmd: "{{ _compose_cmd.stdout }}"
+
+- name: "03 | base_data | Wait for Docker daemon"
+  ansible.builtin.command:
+    argv: ["docker", "info"]
+  register: _docker_info
+  changed_when: false
+
+- name: "04 | base_data | Ensure docker network exists"
+  ansible.builtin.command:
+    argv: ["docker", "network", "inspect", "platform_net"]
+  register: _net
+  failed_when: false
+  changed_when: false
+
+- name: "05 | base_data | Create docker network if missing"
+  ansible.builtin.command:
+    argv: ["docker", "network", "create", "platform_net"]
+  when: _net.rc != 0
+  changed_when: true
+
+- name: "06 | base_data | Ensure base_data dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/10_base/data"
+    state: directory
+    mode: "0755"
+
+- name: "07 | base_data | Copy SCHEMA V3"
+  ansible.builtin.copy:
+    src: schema_v3.sql
+    dest: "{{ platform_compose_dir }}/10_base/data/schema_v3.sql"
+    mode: "0644"
+
+- name: "08 | base_data | Set Timescale creds (Option A)"
+  ansible.builtin.set_fact:
+    timescaledb_db: "{{ postgres_db }}"
+    timescaledb_user: "{{ postgres_user }}"
+    timescaledb_password: "{{ postgres_password }}"
+
+- name: "09 | base_data | Assert Timescale password is defined"
+  ansible.builtin.assert:
+    that:
+      - timescaledb_password | length > 0
+    fail_msg: "Falta definir vault_timescaledb_postgres_password (o equivalente) en vault.yml"
+
+- name: "10 | base_data | Render data .env (secrets from vault)"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/10_base/data/.env"
+    mode: "0600"
+  no_log: true
+
+- name: "11 | base_data | Render Timescale/Adminer compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/10_base/data/docker-compose.yml"
+    mode: "0644"
+
+- name: "12 | base_data | Force reinit (down -v) if requested"
+  ansible.builtin.command:
+    argv:
+      - "{{ docker_compose_cmd.split(' ')[0] }}"
+      - "{{ docker_compose_cmd.split(' ')[1] | default('compose') }}"
+      - "--env-file"
+      - "{{ platform_compose_dir }}/10_base/data/.env"
+      - "-f"
+      - "{{ platform_compose_dir }}/10_base/data/docker-compose.yml"
+      - "down"
+      - "-v"
+      - "--remove-orphans"
+  args:
+    chdir: "{{ platform_compose_dir }}/10_base/data"
+  when: base_data_force_reinit | default(false) | bool
+  changed_when: true
+
+- name: "13 | base_data | Deploy Timescale/Adminer (compose up)"
+  ansible.builtin.command:
+    argv:
+      - "{{ docker_compose_cmd.split(' ')[0] }}"
+      - "{{ docker_compose_cmd.split(' ')[1] | default('compose') }}"
+      - "--env-file"
+      - "{{ platform_compose_dir }}/10_base/data/.env"
+      - "-f"
+      - "{{ platform_compose_dir }}/10_base/data/docker-compose.yml"
+      - "up"
+      - "-d"
+      - "--remove-orphans"
+  args:
+    chdir: "{{ platform_compose_dir }}/10_base/data"
+  changed_when: false
+
+- name: "14 | base_data | Wait for Postgres to be ready (pg_isready)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - timescaledb_10_base
+      - pg_isready
+      - "-h"
+      - "127.0.0.1"
+      - "-p"
+      - "5432"
+  register: _pg_ready
+  retries: 30
+  delay: 2
+  until: _pg_ready.rc == 0
+  changed_when: false
+
+- name: "15 | base_data | Try admin candidates (tsdb/postgres/platform)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "-e"
+      - "PGPASSWORD={{ timescaledb_password }}"
+      - timescaledb_10_base
+      - psql
+      - "-U"
+      - "{{ item }}"
+      - "-d"
+      - postgres
+      - "-tAc"
+      - "SELECT 1"
+  loop:
+    - "{{ timescaledb_user }}"
+    - "postgres"
+    - "platform"
+  register: _admin_probe
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: "16 | base_data | Pick first working admin user"
+  ansible.builtin.set_fact:
+    timescaledb_admin_user: >-
+      {{
+        (_admin_probe.results
+          | selectattr('rc', 'equalto', 0)
+          | map(attribute='item')
+          | list
+          | first) | default('')
+      }}
+
+- name: "17 | base_data | Fail if no admin user works (need reinit)"
+  ansible.builtin.fail:
+    msg: >
+      No pude autenticar contra Postgres con ({{ timescaledb_user }}, postgres, platform).
+      Probablemente el volumen fue inicializado con otra clave/usuario.
+      Ejecuta una vez con: -e base_data_force_reinit=true
+  when: timescaledb_admin_user | length == 0
+
+- name: "18 | base_data | Ensure role exists (idempotent)"
+  ansible.builtin.shell: |
+    set -e
+    docker exec -e PGPASSWORD='{{ timescaledb_password }}' -i timescaledb_10_base \
+      psql -U "{{ timescaledb_admin_user }}" -d postgres -v ON_ERROR_STOP=1 <<SQL
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ timescaledb_user }}') THEN
+        CREATE ROLE "{{ timescaledb_user }}" LOGIN PASSWORD '{{ timescaledb_password }}' SUPERUSER;
+      ELSE
+        ALTER ROLE "{{ timescaledb_user }}" WITH SUPERUSER;
+      END IF;
+    END
+    \$\$;
+    SQL
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: "18b | base_data | Ensure database exists (idempotent)"
+  ansible.builtin.shell: |
+    set -e
+    # Intentamos crear la DB, si ya existe psql devolverá error pero lo ignoramos con la lógica de bash
+    docker exec -e PGPASSWORD='{{ timescaledb_password }}' -i timescaledb_10_base \
+      psql -U "{{ timescaledb_admin_user }}" -d postgres -v ON_ERROR_STOP=1 \
+      -c "SELECT 1 FROM pg_database WHERE datname = '{{ timescaledb_db }}'" | grep -q 1 || \
+    docker exec -e PGPASSWORD='{{ timescaledb_password }}' -i timescaledb_10_base \
+      psql -U "{{ timescaledb_admin_user }}" -d postgres -v ON_ERROR_STOP=1 \
+      -c "CREATE DATABASE \"{{ timescaledb_db }}\" OWNER \"{{ timescaledb_user }}\";"
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+
+
+- name: "19 | base_data | Apply SCHEMA V3 idempotent (force)"
+  ansible.builtin.shell: |
+    set -e
+    docker exec -e PGPASSWORD="{{ timescaledb_password }}" -i timescaledb_10_base \
+      psql -U "{{ timescaledb_admin_user }}" -d "{{ timescaledb_db }}" -v ON_ERROR_STOP=1 \
+      < "{{ platform_compose_dir }}/10_base/data/schema_v3.sql"
+  args:
+    executable: /bin/bash
+  register: _schema_apply
+  retries: 5
+  delay: 5
+  until: _schema_apply.rc == 0
+  changed_when: false
+
+- name: "19.5 | base_data | Asegurar directorio extra_sql en el servidor"
+  file:
+    path: "/opt/platform/compose/10_base/data/extra_sql"
+    state: directory
+    mode: '0755'
+
+- name: "20 | base_data | Render All Extra SQL Schemas"
+  template:
+    src: "{{ item }}"
+    dest: "/opt/platform/compose/10_base/data/extra_sql/{{ item | basename | regex_replace('\\.j2$', '') }}"
+  with_fileglob:
+    - "{{ role_path }}/templates/extra_sql/*.sql"
+    - "{{ role_path }}/templates/extra_sql/*.sql.j2"
+  register: _render_sql
+
+- name: "21 | base_data | Apply Extra Schemas"
+  shell: |
+    set -euo pipefail
+    cd "/opt/platform/compose/10_base/data/extra_sql"
+    for f in $(ls -1 *.sql 2>/dev/null | sort); do
+      docker exec -e PGPASSWORD="{{ postgres_password }}" -i timescaledb_10_base \
+      psql -U "{{ postgres_user }}" -d "{{ postgres_db }}" -v ON_ERROR_STOP=1 < "$f"
+    done
+  args:
+    executable: /bin/bash

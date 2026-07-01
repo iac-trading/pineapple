@@ -1,0 +1,18 @@
+-- FACTORY RBAC & PERFORMANCE TUNING V2.0 (96GB RAM OPTIMIZED)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{{ postgres_user }}') THEN
+        CREATE ROLE {{ postgres_user }} WITH LOGIN PASSWORD '{{ postgres_password }}';
+    END IF;
+END
+$$;
+
+GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};
+GRANT ALL ON SCHEMA public TO {{ postgres_user }};
+
+-- Optimización para 96GB RAM
+ALTER SYSTEM SET max_connections = 500;
+ALTER SYSTEM SET shared_buffers = '32GB';
+ALTER SYSTEM SET effective_cache_size = '72GB';
+ALTER SYSTEM SET work_mem = '128MB';
+ALTER SYSTEM SET timescaledb.max_background_workers = 12;

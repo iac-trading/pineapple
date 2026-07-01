@@ -1,0 +1,42 @@
+# =================================================================
+# 520 | Deploy TimescaleDB & Apply Database Schema
+# =================================================================
+---
+- name: 520 | Deploy TimescaleDB & Apply Database Schema
+  hosts: dat
+  become: true
+  gather_facts: true
+  tags: [ "database", "timescale" ]
+  
+  vars:
+    target_container: "timescaledb_10_base"
+    db_user: "{{ postgres_user | default('tsdb') }}"
+    db_name: "{{ postgres_db | default('trading') }}"
+
+  roles:
+    - { role: repo_sync, tags: ["repo_sync"] }
+    - { role: base_data, tags: ["base_data"] }
+
+  tasks:
+    - name: "DB | Copy Unified Schema"
+      ansible.builtin.copy:
+        src: "../roles/base_data/files/schema_v3.sql"
+        dest: "/tmp/schema_v3.sql"
+        mode: '0644'
+
+    - name: "DB | Apply Unified Schema (Immutable)"
+      ansible.builtin.shell: |
+        docker exec -i {{ target_container }} psql -U {{ db_user }} -d {{ db_name }} < /tmp/schema_v3.sql
+      register: schema_apply
+      changed_when: "'CREATE' in schema_apply.stdout or 'ALTER' in schema_apply.stdout or 'DROP' in schema_apply.stdout"
+
+    - name: "DB | Clean up temporary schema file"
+      ansible.builtin.file:
+        path: "/tmp/schema_v3.sql"
+        state: absent
+
+    - name: "MIGRATION | Apply Shadow Trading Schema (Phase 19)"
+      shell: |
+        docker exec -i {{ target_container }} psql -U {{ db_user }} -d {{ db_name }} < {{ platform_repo_dir }}/deploy/ansible/files/sql/19_shadow_trading_migration.sql
+        docker exec -i {{ target_container }} psql -U {{ db_user }} -d {{ db_name }} < {{ platform_repo_dir }}/deploy/ansible/files/sql/19_latency_audit_view.sql
+      changed_when: false

@@ -1,0 +1,70 @@
+---
+# repo_sync:
+# - mode=sync: copia (rsync) desde el controller hacia cada VM
+# - mode=git : cada VM clona/pulla desde GitHub (requiere credenciales en la VM)
+
+- name: "00 | repo_sync | Ensure repo destination dir"
+  ansible.builtin.file:
+    path: "{{ repo_sync_dest }}"
+    state: directory
+    mode: "0755"
+
+# ----------------------------
+# MODE: SYNC (recomendado)
+# ----------------------------
+- name: "01 | repo_sync | Validate sync source is provided (mode=sync)"
+  ansible.builtin.assert:
+    that:
+      - repo_sync_src is defined
+      - (repo_sync_src | length) > 0
+    fail_msg: >-
+      repo_distribution_mode=sync pero repo_sync_src no está definido.
+      Define repo_sync_src en group_vars/all/main.yml (ej: /home/ansible/platform).
+  when: (repo_distribution_mode | default('sync')) == 'sync'
+
+- name: "02 | repo_sync | Sync repo from controller (mode=sync)"
+  ansible.builtin.synchronize:
+    src: "{{ repo_sync_src }}/"
+    dest: "{{ repo_sync_dest }}/"
+    delete: true
+    recursive: true
+    compress: true
+    rsync_opts: >-
+      {{
+        (repo_sync_excludes | default([
+          '.git',
+          '.github',
+          '.vscode',
+          '__pycache__',
+          '*.pyc',
+          '.venv',
+          'node_modules'
+        ]))
+        | map('regex_replace','^(.*)$','--exclude=\\1')
+        | list
+      }}
+    rsync_path: "sudo rsync"
+  delegate_to: localhost
+  when: (repo_distribution_mode | default('sync')) == 'sync'
+
+# ----------------------------
+# MODE: GIT (opcional)
+# ----------------------------
+- name: "10 | repo_sync | Build authenticated URL if token provided (mode=git)"
+  ansible.builtin.set_fact:
+    _repo_url_auth: >-
+      {% if (repo_sync_token is defined and repo_sync_token|length > 0)
+            and (repo_sync_username is defined and repo_sync_username|length > 0) %}
+      https://{{ repo_sync_username }}:{{ repo_sync_token }}@{{ repo_sync_url | regex_replace('https://', '') }}
+      {% else %}
+      {{ repo_sync_url }}
+      {% endif %}
+  when: (repo_distribution_mode | default('sync')) == 'git'
+
+- name: "11 | repo_sync | Clone/pull repo (mode=git)"
+  ansible.builtin.git:
+    repo: "{{ _repo_url_auth }}"
+    dest: "{{ repo_sync_dest }}"
+    version: "{{ repo_sync_version }}"
+    force: true
+  when: (repo_distribution_mode | default('sync')) == 'git'

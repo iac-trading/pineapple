@@ -1,0 +1,21 @@
+-- Esquema de Contexto de IA y Noticias para Trading de Alta Fidelidad
+-- Este archivo extiende la base de datos 'trading' en DATA-01
+
+CREATE TABLE IF NOT EXISTS ai_news_events (
+    event_id SERIAL,
+    ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    symbol VARCHAR(20),       -- Opcional: si la noticia es específica (ej: BTC, TSLA)
+    source VARCHAR(50),       -- Bloomberg, Reuters, etc.
+    title TEXT NOT NULL,
+    content TEXT,
+    sentiment_score FLOAT,    -- -1.0 a 1.0 (calculado por IA)
+    impact_level INT,         -- 1 (bajo) a 5 (crítico)
+    meta JSONB                -- Para datos extra de la API (URLs, tags)
+);
+
+-- Convertir en Hypertable de TimescaleDB para backtesting eficiente
+SELECT create_hypertable('ai_news_events', 'ts', if_not_exists => TRUE);
+
+-- Índices para búsqueda rápida durante backtesting
+CREATE INDEX IF NOT EXISTS idx_news_symbol_ts ON ai_news_events (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_news_source ON ai_news_events (source);

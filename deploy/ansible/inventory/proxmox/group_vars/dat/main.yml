@@ -1,3 +1,7 @@
 ---
 postgres_port: 5432
 adminer_port: 8081
+
+# Optimización para los 96GB RAM de VM-AQ-DATA
+db_shared_buffers: "24GB"
+db_effective_cache_size: "72GB"
