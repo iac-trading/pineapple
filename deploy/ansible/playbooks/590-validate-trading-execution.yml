@@ -7,7 +7,7 @@
   gather_facts: false
   tags: [ "validate", "shadow_phase" ]
   vars:
-    test_instance_id: "99999999-9999-9999-9999-999999999999"
+    test_instance_id: "{{ 999999999 | random | string | to_uuid }}"
 
   tasks:
     - name: "SCHEMA | Check is_shadow in strategy_instances"
@@ -121,6 +121,8 @@
   tags: [ "validate", "position_sizing" ]
   vars:
     test_symbol: "BTC/USDT"
+    test_instance_id: "{{ 555555555 | random | string | to_uuid }}"
+    test_correlation_id: "{{ 666666666 | random | string | to_uuid }}"
 
   tasks:
     - name: "TEST | Check Bridge Balance Endpoint"
@@ -155,11 +157,11 @@
             nc = NATS()
             await nc.connect(nats_url)
             payload = {
-                'instance_id': '11111111-1111-1111-1111-111111111111',
+                'instance_id': '{{ test_instance_id }}',
                 'symbol': '{{ test_symbol }}',
                 'side': 'BUY',
                 'qty': 1000.0,
-                'correlation_id': '22222222-2222-2222-2222-222222222222',
+                'correlation_id': '{{ test_correlation_id }}',
                 'meta': {'size_model': 'ATR_RISK_1PCT', 'broker': 'paper'}
             }
             await nc.publish('orders.intent', json.dumps(payload).encode())
@@ -190,7 +192,7 @@
   gather_facts: false
   tags: [ "validate", "reconciliation" ]
   vars:
-    test_instance_id: "77777777-7777-7777-7777-777777777777"
+    test_instance_id: "{{ 888888888 | random | string | to_uuid }}"
     test_symbol: "RECON/TEST"
     test_broker: "paper"
 
