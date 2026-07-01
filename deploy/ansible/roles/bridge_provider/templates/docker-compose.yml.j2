@@ -17,6 +17,7 @@ services:
     env_file: [ ".env" ]
     environment:
       - PYTHONUNBUFFERED=1
+      - HEALTH_PORT={{ bridge_health_port }}
     networks: [ "{{ docker_network_name }}" ]
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:{{ bridge_health_port }}/health\")'"]

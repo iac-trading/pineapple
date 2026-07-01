@@ -104,14 +104,14 @@ class Bridge:
 
     async def run_deriv_sensor(self, symbol: str):
         logger.info(f"Deriv sensor enabled for {symbol}")
-        try:
-            async for tick in deriv_ticks_stream(DERIV_APP_ID, DERIV_TOKEN, symbol):
-                subject = f"{TICKS_PREFIX}.deriv.{symbol.replace(' ', '_')}.tick"
-                await self.nc.publish(subject, json.dumps(tick).encode())
-        except Exception as e:
-            logger.error(f"Deriv sensor error for {symbol}: {e}")
-            await asyncio.sleep(10)
-            asyncio.create_task(self.run_deriv_sensor(symbol))
+        while True:
+            try:
+                async for tick in deriv_ticks_stream(DERIV_APP_ID, DERIV_TOKEN, symbol):
+                    subject = f"{TICKS_PREFIX}.deriv.{symbol.replace(' ', '_')}.tick"
+                    await self.nc.publish(subject, json.dumps(tick).encode())
+            except Exception as e:
+                logger.error(f"Deriv sensor error for {symbol}: {e}")
+                await asyncio.sleep(10)
 
     def fetch_instance(self, instance_id: UUID):
         conn = pg_conn()
