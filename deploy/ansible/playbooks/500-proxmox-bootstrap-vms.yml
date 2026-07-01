@@ -110,7 +110,10 @@
           --cpu host \
           --net0 "virtio,bridge={{ net_bridge }}" \
           --ipconfig0 "ip={{ item.ip }},gw={{ vlan_gateway }}" \
-          --nameserver "{{ dns_string }}"
+          --nameserver "{{ dns_string }}" \
+          --sshkeys /root/.ssh/authorized_keys \
+          --ciuser ansible
+        qm cloudinit update "{{ item.vmid }}"
       args: { executable: /bin/bash }
       loop: "{{ vms }}"
       loop_control: { label: "CONFIG {{ item.name }}" }
