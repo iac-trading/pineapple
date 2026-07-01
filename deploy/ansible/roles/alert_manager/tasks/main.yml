@@ -1,0 +1,34 @@
+---
+- name: "00 | alert_manager | Ensure 24_alert_manager dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/24_alert_manager"
+    state: directory
+    mode: "0755"
+  tags: ["alert_manager", "reconciler"]
+
+- name: "01 | alert_manager | Detect alert_manager source path"
+  ansible.builtin.set_fact:
+    alert_mgr_build_context: "{{ platform_repo_dir }}/services/24_alert_manager"
+  tags: ["alert_manager", "reconciler"]
+
+- name: "02 | alert_manager | Render compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/24_alert_manager/docker-compose.yml"
+    mode: "0644"
+  tags: ["alert_manager", "reconciler"]
+
+- name: "03 | alert_manager | Deploy (compose up)"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - -f
+      - "{{ platform_compose_dir }}/24_alert_manager/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  register: _alert_mgr_up
+  changed_when: "'Recreating' in (_alert_mgr_up.stdout | default('')) or 'Creating' in (_alert_mgr_up.stdout | default('')) or 'Building' in (_alert_mgr_up.stdout | default(''))"
+  tags: ["alert_manager", "reconciler"]

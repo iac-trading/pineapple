@@ -1,0 +1,27 @@
+services:
+  alert_manager:
+    build:
+      context: {{ alert_mgr_build_context }}
+      dockerfile: Dockerfile
+    container_name: alert_manager
+    restart: always
+    environment:
+      - NATS_URL={{ nats_url }}
+      - TELEGRAM_TOKEN={{ vault_telegram_token | default('') }}
+      # Lista de destinatarios separados por coma: "id1,id2,id3"
+      - TELEGRAM_CHAT_IDS={{ vault_telegram_chat_ids | default(vault_telegram_chat_id | default('')) }}
+      # Umbrales de balance
+      - BALANCE_WARNING_USD={{ alert_balance_warning_usd | default('5.0') }}
+      - BALANCE_CRITICAL_USD={{ alert_balance_critical_usd | default('2.0') }}
+      - PYTHONUNBUFFERED=1
+    networks:
+      - {{ docker_network_name }}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  {{ docker_network_name }}:
+    external: true

@@ -1,0 +1,14 @@
+# =================================================================
+# 588 | Deploy Reconciliation Hub & Alert Manager
+# =================================================================
+---
+- name: 588.1 | Brain | Despliegue de Reconciliation Hub y Alert Manager
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "reconciler", "alert_manager" ]
+
+  roles:
+    - { role: repo_sync, tags: ["repo_sync"] }
+    - reconciliation_hub
+    - alert_manager

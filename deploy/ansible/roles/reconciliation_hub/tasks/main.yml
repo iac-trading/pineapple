@@ -1,0 +1,66 @@
+---
+- name: "00 | reconciliation_hub | Ensure 23_reconciliation_hub dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/23_reconciliation_hub/reconciler"
+    state: directory
+    mode: "0755"
+  tags: ["reconciler"]
+
+- name: "01 | reconciliation_hub | Render .env"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/23_reconciliation_hub/reconciler/.env"
+    mode: "0600"
+  tags: ["reconciler"]
+
+- name: "02 | reconciliation_hub | Detect reconciler source path option A (top-level services/)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/services/23_reconciliation_hub"
+  register: _re_src_a
+  tags: ["reconciler"]
+
+- name: "03 | reconciliation_hub | Detect reconciler source path option B (nested platform/)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/platform/services/23_reconciliation_hub"
+  register: _re_src_b
+  tags: ["reconciler"]
+
+- name: "04 | reconciliation_hub | Set build context path"
+  ansible.builtin.set_fact:
+    reconciler_build_context: >-
+      {{
+        (platform_repo_dir ~ '/services/23_reconciliation_hub') if _re_src_a.stat.exists
+        else (platform_repo_dir ~ '/platform/services/23_reconciliation_hub') if _re_src_b.stat.exists
+        else ''
+      }}
+  tags: ["reconciler"]
+
+- name: "05 | reconciliation_hub | Fail if source directory not found"
+  ansible.builtin.fail:
+    msg: "No se encontró el directorio de reconciliation_hub en {{ platform_repo_dir }}"
+  when: reconciler_build_context | length == 0
+  tags: ["reconciler"]
+
+- name: "05 | reconciliation_hub | Render compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/23_reconciliation_hub/reconciler/docker-compose.yml"
+    mode: "0644"
+  tags: ["reconciler"]
+
+- name: "06 | reconciliation_hub | Deploy (compose up)"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --env-file
+      - "{{ platform_compose_dir }}/23_reconciliation_hub/reconciler/.env"
+      - -f
+      - "{{ platform_compose_dir }}/23_reconciliation_hub/reconciler/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  register: _reconciler_up
+  changed_when: "'Recreating' in (_reconciler_up.stdout | default('')) or 'Creating' in (_reconciler_up.stdout | default('')) or 'Building' in (_reconciler_up.stdout | default(''))"
+  tags: ["reconciler"]

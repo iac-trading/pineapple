@@ -1,0 +1,273 @@
+# =================================================================
+# 590 | Validate Trading Execution & Risk Systems
+# =================================================================
+---
+- name: 590.1 | Validate | Shadow Trading & Centralized Alerts
+  hosts: localhost
+  gather_facts: false
+  tags: [ "validate", "shadow_phase" ]
+  vars:
+    test_instance_id: "99999999-9999-9999-9999-999999999999"
+
+  tasks:
+    - name: "SCHEMA | Check is_shadow in strategy_instances"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name='strategy_instances' AND column_name='is_shadow';"
+      register: _schema_inst
+      failed_when: "'is_shadow' not in _schema_inst.stdout"
+
+    - name: "SCHEMA | Check is_shadow in orders"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name='orders' AND column_name='is_shadow';"
+      register: _schema_orders
+      failed_when: "'is_shadow' not in _schema_orders.stdout"
+
+    - name: "SCHEMA | Check correlation_id in journal_events"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name='journal_events' AND column_name='correlation_id';"
+      register: _schema_journal
+      failed_when: "'correlation_id' not in _schema_journal.stdout"
+
+    - name: "BRIDGE | Inject Shadow Test Instance"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        INSERT INTO strategy_blueprints (blueprint_id, name, docker_image) 
+        VALUES ('shadow-test', 'Shadow Test', 'image') ON CONFLICT DO NOTHING;
+        INSERT INTO strategy_instances (instance_id, blueprint_id, name, assigned_host, symbol, broker, is_shadow, is_active)
+        VALUES ('{{ test_instance_id }}', 'shadow-test', 'SHADOW_TEST', 'VM-AQ-COMPUTE', 'R_75', 'deriv_paper', TRUE, TRUE)
+        ON CONFLICT (instance_id) DO UPDATE SET is_shadow = TRUE, is_active = TRUE;
+        "
+
+    - name: "BRIDGE | Send Shadow Order via NATS"
+      delegate_to: "{{ groups['orc'][0] }}"
+      shell: |
+        docker exec -i reconciliation_hub python -c "
+        import asyncio, os, json
+        from nats.aio.client import Client as NATS
+        async def run():
+            nc = NATS()
+            await nc.connect(servers=[os.getenv('NATS_URL')])
+            payload = {'instance_id': '{{ test_instance_id }}', 'correlation_id': '{{ test_instance_id }}', 'side': 'buy', 'qty': 0.5, 'symbol': 'R_75', 'meta': {'is_shadow': True}}
+            await nc.publish('orders.submit', json.dumps(payload).encode())
+            await nc.close()
+        asyncio.run(run())
+        "
+
+    - name: "PAUSE | Processing Shadow Order"
+      pause: seconds=3
+
+    - name: "VERIFY | Bridge Logs for Shadow Execution"
+      delegate_to: "{{ groups['trd'][0] }}"
+      shell: "docker logs bridge_provider --tail 50"
+      register: _bridge_logs
+      failed_when: 
+        - "'shadow_filled' not in (_bridge_logs.stdout + _bridge_logs.stderr).lower()"
+        - "'broker=deriv_paper' not in (_bridge_logs.stdout + _bridge_logs.stderr).lower()"
+
+    - name: "ALERT | Send Mock Recon Divergence"
+      delegate_to: "{{ groups['orc'][0] }}"
+      shell: |
+        docker exec -i reconciliation_hub python -c "
+        import asyncio, os, json
+        from nats.aio.client import Client as NATS
+        async def run():
+            nc = NATS()
+            await nc.connect(servers=[os.getenv('NATS_URL')])
+            payload = {
+              'ts': '2026-03-18T00:00:00Z',
+              'level': 'CRITICAL',
+              'type': 'RECONCILIATION_DIVERGENCE',
+              'msg': '🔥 PHASE 19 VALIDATION: Mock Divergence',
+              'details': {'broker': 'ibkr_paper', 'symbol': 'EURUSD', 'db': 1000, 'real': 0, 'diff': 1000}
+            }
+            await nc.publish('alerts.reconciliation', json.dumps(payload).encode())
+            await nc.close()
+        asyncio.run(run())
+        "
+
+    - name: "PAUSE | Alert Manager Processing"
+      pause: seconds=5
+
+    - name: "VERIFY | Alert Manager Logs (Centralized Delivery)"
+      delegate_to: "{{ groups['orc'][0] }}"
+      shell: "docker logs alert_manager --tail 50"
+      register: _alert_logs
+      failed_when:
+        - "'PHASE 19 VALIDATION' not in _alert_logs.stdout"
+        - "'Critical alert received' not in _alert_logs.stdout"
+
+    - name: "CLEANUP | Remove Test Instance"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        DELETE FROM strategy_instances WHERE instance_id = '{{ test_instance_id }}';
+        "
+
+- name: 590.2 | Validate | Risk & Position Sizing
+  hosts: trd
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tags: [ "validate", "position_sizing" ]
+  vars:
+    test_symbol: "BTC/USDT"
+
+  tasks:
+    - name: "TEST | Check Bridge Balance Endpoint"
+      ansible.builtin.shell: |
+        docker exec bridge_provider python3 -c "
+        import asyncio, json, os
+        from nats.aio.client import Client as NATS
+        async def run():
+            nats_url = os.getenv('NATS_URL', 'nats://nats:4222')
+            nc = NATS()
+            await nc.connect(nats_url)
+            resp = await nc.request('bridge.balance.get', b'', timeout=5)
+            print(resp.data.decode())
+            await nc.flush()
+            await nc.close()
+        asyncio.run(run())
+        "
+      register: _bridge_balance
+      failed_when: "'\"status\": \"ok\"' not in _bridge_balance.stdout"
+
+    - name: "VERIFY | Balance Response"
+      ansible.builtin.debug:
+        msg: "✅ Bridge balance reported: {{ (_bridge_balance.stdout | from_json).total_equity }} USD"
+
+    - name: "TEST | Send Dynamic Sizing Intent"
+      ansible.builtin.shell: |
+        docker exec risk_engine python3 -c "
+        import asyncio, json, os
+        from nats.aio.client import Client as NATS
+        async def run():
+            nats_url = os.getenv('NATS_URL', 'nats://nats:4222')
+            nc = NATS()
+            await nc.connect(nats_url)
+            payload = {
+                'instance_id': '11111111-1111-1111-1111-111111111111',
+                'symbol': '{{ test_symbol }}',
+                'side': 'BUY',
+                'qty': 1000.0,
+                'correlation_id': '22222222-2222-2222-2222-222222222222',
+                'meta': {'size_model': 'ATR_RISK_1PCT', 'broker': 'paper'}
+            }
+            await nc.publish('orders.intent', json.dumps(payload).encode())
+            await nc.flush()
+            await nc.close()
+        asyncio.run(run())
+        "
+
+    - name: "WAIT | Processing"
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: "TEST | Verify Risk Engine Logs for Resizing"
+      ansible.builtin.command: "docker logs risk_engine --tail 50"
+      register: _risk_logs
+
+    - name: "VERIFY | Resize Logic or Warning in Logs"
+      ansible.builtin.assert:
+        that:
+          - "'[RISK SIZING] Resizing' in _risk_logs.stdout or 'ATR for ' in _risk_logs.stdout"
+        fail_msg: |
+          ❌ Risk Engine did not process the position sizing model. 
+          FULL LOGS RECENT OUTPUT:
+          {{ _risk_logs.stdout }}
+
+- name: 590.3 | Validate | Reconciliation Hub Audit
+  hosts: localhost
+  gather_facts: false
+  tags: [ "validate", "reconciliation" ]
+  vars:
+    test_instance_id: "77777777-7777-7777-7777-777777777777"
+    test_symbol: "RECON/TEST"
+    test_broker: "paper"
+
+  tasks:
+    - name: "SETUP | Inject Dummy Blueprint and Test Instance into DB"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        INSERT INTO strategy_blueprints (blueprint_id, name, docker_image, version)
+        VALUES ('blueprint-recon', 'Recon Test Blueprint', 'test-image', '1.0.0-test')
+        ON CONFLICT (blueprint_id) DO NOTHING;
+
+        INSERT INTO strategy_instances (instance_id, blueprint_id, name, owner, assigned_host, symbol, broker, status, desired_status, qty, is_active)
+        VALUES ('{{ test_instance_id }}', 'blueprint-recon', 'Recon Test Bot', 'system', 'VM-AQ-COMPUTE', '{{ test_symbol }}', '{{ test_broker }}', 'running', 'running', 1.0, TRUE)
+        ON CONFLICT (instance_id) DO UPDATE SET status='running', desired_status='running', qty=1.0;
+        "
+
+    - name: "TRIGGER | Force quick reconciliation check"
+      delegate_to: "{{ groups['orc'][0] }}"
+      shell: |
+        docker exec reconciliation_hub python -c "
+        import asyncio, os, json
+        from app.main import ReconciliationHub
+        async def run():
+            hub = ReconciliationHub()
+            await hub.nc.connect(servers=[os.getenv('NATS_URL')])
+            await hub.reconcile()
+            await hub.nc.close()
+        asyncio.run(run())
+        "
+      register: _recon_output
+
+    - name: "VERIFY | Check if Instance was HALTED in DB"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -t -c "
+        SELECT desired_status FROM strategy_instances WHERE instance_id = '{{ test_instance_id }}';
+        "
+      register: _final_status
+
+    - name: "ASSERT | Instance is Stopped"
+      assert:
+        that:
+          - "'stopped' in _final_status.stdout"
+        fail_msg: "❌ FAILED: The Implacable Auditor DID NOT halt the strategy."
+        success_msg: "✅ SUCCESS: The Auditor detected the divergence and HALTED the strategy."
+
+    - name: "CLEANUP | Remove Test Instance and Blueprint"
+      delegate_to: "{{ groups['dat'][0] }}"
+      shell: |
+        docker exec -i timescaledb_10_base psql -U tsdb -d trading -c "
+        DELETE FROM strategy_instances WHERE instance_id = '{{ test_instance_id }}';
+        DELETE FROM strategy_blueprints WHERE blueprint_id = 'blueprint-recon';
+        "
+      ignore_errors: true
+
+- name: 590.4 | Debug | Fetch Risk Engine Info
+  hosts: trd
+  become: true
+  gather_facts: false
+  tags: [ "validate", "debug_risk" ]
+  tasks:
+    - name: "Status | Check container"
+      ansible.builtin.command: "docker ps -a --filter name=risk_engine"
+      register: _ps
+      changed_when: false
+    
+    - name: "Logs | Get last 100 lines"
+      ansible.builtin.command: "docker logs risk_engine --tail 100"
+      register: _logs
+      failed_when: false
+      changed_when: false
+
+    - name: "Output | Display PS"
+      ansible.builtin.debug:
+        var: _ps.stdout_lines
+
+    - name: "Output | Display Logs"
+      ansible.builtin.debug:
+        var: _logs.stdout_lines

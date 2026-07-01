@@ -1,0 +1,30 @@
+services:
+  reconciler:
+    build:
+      context: {{ reconciler_build_context }}
+      dockerfile: Dockerfile
+    container_name: reconciliation_hub
+    restart: always
+    env_file: .env
+    environment:
+      - NATS_URL={{ nats_url }}
+      - POSTGRES_HOST={{ postgres_host }}
+      - POSTGRES_PORT={{ postgres_port }}
+      - POSTGRES_USER={{ postgres_user }}
+      - POSTGRES_PASSWORD={{ postgres_password }}
+      - POSTGRES_DB={{ postgres_db | default('trading') }}
+      - CHECK_INTERVAL={{ reconciler_check_interval | default(600) }}
+      - TELEGRAM_TOKEN={{ telegram_token }}
+      - TELEGRAM_CHAT_ID={{ telegram_chat_id }}
+      - PYTHONUNBUFFERED=1
+    networks:
+      - {{ docker_network_name }}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  {{ docker_network_name }}:
+    external: true
