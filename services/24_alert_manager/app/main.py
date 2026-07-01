@@ -143,6 +143,7 @@ class AlertManager:
     async def on_critical_alert(self, msg):
         try:
             data = json.loads(msg.data.decode())
+            logger.info(f"Critical alert received: {data.get('msg', 'Sin descripción')}")
             text = (
                 f"💬 *Mensaje*: {self._esc(data.get('msg', 'Sin descripción'))}\n"
                 f"🕒 `{data.get('ts', 'N/A')}`\n"
@@ -157,6 +158,7 @@ class AlertManager:
     async def on_reconciliation_alert(self, msg):
         try:
             data = json.loads(msg.data.decode())
+            logger.info(f"Critical alert received: {data.get('msg', 'Sin descripción')}")
             div = data.get("details", {})
             text = (
                 f"⚖️ *DIVERGENCIA DE RECONCILIACIÓN*\n\n"
