@@ -12,7 +12,7 @@ services:
       - TWS_TRUSTED_IPS=127.0.0.1,192.168.100.0/24,10.100.100.0/24,172.16.0.0/12
       - VNC_SERVER_PASSWORD={{ vnc_password | default('vnc_password_2026', true) }}
     ports:
-      - "4001:4001" # API
+      - "4001:4004" # API (socat bridge)
       - "4003:4003" # NoVNC (Acceso vía Navegador)
       - "5900:5900" # VNC Classic (Para RealVNC)
     networks:
