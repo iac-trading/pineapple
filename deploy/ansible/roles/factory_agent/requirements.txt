@@ -1,0 +1,6 @@
+psycopg2-binary==2.9.9
+docker==7.1.0
+nats-py==2.7.2
+ray[default]==2.40.0
+# Herramienta de profiling para Ray Dashboard
+py-spy==0.3.14

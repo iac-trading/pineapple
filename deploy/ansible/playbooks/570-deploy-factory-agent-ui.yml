@@ -1,0 +1,90 @@
+# =================================================================
+# 570 | Deploy Factory Agent, Streamlit UI & Strategy Containers
+# =================================================================
+---
+- name: 570.1 | Cleanup | Consolidación y Limpieza de Infraestructura
+  hosts: orc, dat, cmp, ai
+  become: true
+  tags: [ "cleanup", "consolidation" ]
+  vars:
+    obsolete_paths:
+      - "/opt/platform/compose/airflow"
+      - "/opt/platform/compose/data"
+
+  tasks:
+    - name: "Consolidación | Detener Stacks de Airflow SQLite (si existen)"
+      ansible.builtin.shell: |
+        if [ -f {{ item }}/docker-compose.yml ]; then
+          docker compose -f {{ item }}/docker-compose.yml down -v --remove-orphans || true
+        fi
+      loop: "{{ obsolete_paths }}"
+      when: inventory_hostname == infra_hosts.nats
+
+    - name: "Consolidación | Eliminar directorios de versiones obsoletas"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ obsolete_paths }}"
+
+    - name: "Consolidación | Forzar dueño Airflow (50000) en directorios operativos"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "50000"
+        group: "0"
+        recurse: yes
+        mode: "0775"
+      loop:
+        - "/opt/platform/logs/airflow"
+        - "/opt/platform/repo/dags"
+      when: inventory_hostname == infra_hosts.nats
+
+    - name: "Consolidación | Prune de imágenes y volúmenes huérfanos"
+      ansible.builtin.shell: "docker system prune -f --volumes"
+      changed_when: false
+
+- name: 570.2 | Brain | Factory UI V3 & Grafana Dashboards
+  hosts: orc
+  become: true
+  gather_facts: true
+  tags: [ "factory_ui", "monitoring" ]
+  roles:
+    - factory_ui
+
+  tasks:
+    - name: "Grafana | Ensure provisioning dir"
+      ansible.builtin.file:
+        path: "{{ platform_compose_dir }}/10_base/monitoring/grafana_provisioning/dashboards"
+        state: directory
+        mode: "0755"
+
+    - name: "Grafana | Copy new dashboards"
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ platform_compose_dir }}/10_base/monitoring/grafana_provisioning/dashboards/{{ item.dest }}"
+        mode: "0644"
+      loop:
+        - { src: "../../../monitoring/grafana/dashboards/strategy_performance.json", dest: "strategy_performance.json" }
+        - { src: "../../../monitoring/grafana/dashboards/backtest_results.json", dest: "backtest_results.json" }
+
+    - name: "Grafana | Restart to reload dashboards"
+      ansible.builtin.shell: |
+        GRAFANA=$(docker ps --format '{{ '{{' }}.Names{{ '}}' }}' | grep -i grafana | head -1)
+        if [ -n "$GRAFANA" ]; then
+          docker restart "$GRAFANA"
+          echo "Restarted $GRAFANA"
+        else
+          echo "Grafana container not found — skip"
+        fi
+      changed_when: false
+
+- name: 570.3 | Compute | Factory Agent & Active Strategies Execution
+  hosts: cmp
+  become: true
+  gather_facts: true
+  tags: [ "factory_agent", "strategies" ]
+  roles:
+    - { role: repo_sync, tags: ["repo_sync"] }
+    - factory_agent
+    - strategies
+    - tick_recorder

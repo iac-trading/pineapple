@@ -1,0 +1,8 @@
+pandas
+numpy
+nats-py
+python-dotenv
+psycopg2-binary
+yfinance
+redis
+statsmodels

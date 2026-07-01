@@ -1,0 +1,6 @@
+pandas
+numpy
+nats-py
+python-dotenv
+psycopg2-binary
+redis

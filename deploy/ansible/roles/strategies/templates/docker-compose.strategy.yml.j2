@@ -1,0 +1,17 @@
+networks:
+  {{ docker_network_name }}:
+    external: true
+
+services:
+  strategy_{{ st.id }}:
+    image: factory/strat_{{ st.id }}:latest
+    container_name: strategy_{{ st.id }}
+    restart: unless-stopped
+    networks: [ "{{ docker_network_name }}" ]
+    env_file:
+      - {{ platform_compose_dir }}/strategies_build/strat_{{ st.id }}.env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"

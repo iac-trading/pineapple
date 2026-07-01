@@ -1,0 +1,95 @@
+---
+- name: "Strat {{ strat.id }} | Sync Common Logic"
+  ansible.builtin.shell: "cp -r {{ platform_repo_dir }}/strategies/common {{ platform_repo_dir }}/strategies/{{ strat.folder }}/"
+  changed_when: true
+- name: "Strat {{ strat.id }} | Docker Build"
+  ansible.builtin.command:
+    cmd: "docker build -t factory/strat_{{ strat.id }}:latest ."
+    chdir: "{{ platform_repo_dir }}/strategies/{{ strat.folder }}"
+  changed_when: true
+
+- name: "Strat {{ strat.id }} | Register Blueprint SQL"
+  delegate_to: "{{ groups['dat'][0] }}"
+  run_once: true
+  ansible.builtin.shell: |
+    docker exec -i timescaledb_10_base \
+      psql -U {{ postgres_user | default('tsdb') }} \
+           -d {{ postgres_db | default('trading') }} <<SQLEOF
+    INSERT INTO strategy_blueprints (blueprint_id, name, docker_image, default_params)
+    VALUES (
+      '{{ strat.id }}',
+      '{{ strat.name }}',
+      'factory/strat_{{ strat.id }}:latest',
+      '{{ strat.params | to_json }}'::jsonb
+    )
+    ON CONFLICT (blueprint_id) DO UPDATE
+    SET name=EXCLUDED.name,
+        docker_image=EXCLUDED.docker_image,
+        default_params=EXCLUDED.default_params;
+    SQLEOF
+  args:
+    executable: /bin/bash
+
+- name: "Strat {{ strat.id }} | Ensure Default Instance SQL"
+  delegate_to: "{{ groups['dat'][0] }}"
+  vars:
+    # Misma lógica que en env.strategy.j2 para garantizar consistencia
+    st_id_v3: "{{ strat.instance_id | default('101e0000-0000-0000-0000-0000000' + (strat.id | string).zfill(5)) }}"
+  ansible.builtin.shell: |
+    docker exec -i timescaledb_10_base \
+      psql -U {{ postgres_user | default('tsdb') }} \
+           -d {{ postgres_db | default('trading') }} <<SQLEOF
+    INSERT INTO strategy_instances (
+        instance_id, blueprint_id, name, assigned_host,
+        symbol, broker, qty, params, market_subject,
+        desired_status, status, is_active
+    ) VALUES (
+        '{{ st_id_v3 }}',
+        '{{ strat.id }}',
+        '{{ strat.name }}_default',
+        '{{ inventory_hostname }}',
+        '{{ strat.symbol }}',
+        '{{ strat.broker }}',
+        {{ strat.qty }},
+        '{{ strat.params | to_json }}'::jsonb,
+        '{{ strat.md_subject | default("") }}',
+        'running', 'stopped', TRUE
+    )
+    ON CONFLICT (instance_id) DO UPDATE SET 
+        updated_at = now(),
+        assigned_host = EXCLUDED.assigned_host,
+        params = EXCLUDED.params,
+        symbol = EXCLUDED.symbol,
+        broker = EXCLUDED.broker,
+        market_subject = EXCLUDED.market_subject,
+        desired_status = EXCLUDED.desired_status;
+    SQLEOF
+  args:
+    executable: /bin/bash
+
+- name: "Strat {{ strat.id }} | Render .env"
+  ansible.builtin.template:
+    src: env.strategy.j2
+    dest: "{{ platform_compose_dir }}/strategies_build/strat_{{ strat.id }}.env"
+    mode: "0600"
+  vars:
+    st: "{{ strat }}"
+
+- name: "Strat {{ strat.id }} | Render docker-compose"
+  ansible.builtin.template:
+    src: docker-compose.strategy.yml.j2
+    dest: "{{ platform_compose_dir }}/strategies_build/docker-compose.strat_{{ strat.id }}.yml"
+    mode: "0644"
+  vars:
+    st: "{{ strat }}"
+    build_context: "{{ platform_repo_dir }}/strategies/{{ strat.folder }}"
+
+- name: "Strat {{ strat.id }} | Docker Compose Up"
+  ansible.builtin.shell: |
+    docker compose -p strategy_{{ strat.id }} \
+      -f {{ platform_compose_dir }}/strategies_build/docker-compose.strat_{{ strat.id }}.yml \
+      --env-file {{ platform_compose_dir }}/strategies_build/strat_{{ strat.id }}.env \
+      up -d --remove-orphans
+  args:
+    executable: /bin/bash
+  changed_when: true

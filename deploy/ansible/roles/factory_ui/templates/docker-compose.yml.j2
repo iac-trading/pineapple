@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  factory-ui:
+    container_name: factory-ui
+    build:
+      context: "{{ factory_ui_build_context }}"
+    restart: unless-stopped
+    ports:
+      - "{{ factory_ui_port | default(8501) }}:8501"
+    env_file:
+      - .env
+    command: >
+      streamlit run app/main.py
+      --server.port=8501
+      --server.address=0.0.0.0
+    networks:
+      - {{ docker_network_name | default('infra-trade', true) }}
+
+networks:
+  {{ docker_network_name | default('infra-trade', true) }}:
+    external: true

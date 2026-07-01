@@ -1,0 +1,82 @@
+---
+- name: "Factory UI | Enabled?"
+  ansible.builtin.meta: end_host
+  when: not (factory_ui_enabled | default(true) | bool)
+
+- name: "Factory UI | Ensure dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/factory_ui"
+    state: directory
+    mode: "0755"
+
+- name: "Factory UI | Repo sync"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: repo_sync_enabled | default(true) | bool
+
+- name: "Factory UI | Detect UI source path A"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/services/factory_ui"
+  register: _ui_src_a
+
+- name: "Factory UI | Detect UI source path B"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/platform/services/factory_ui"
+  register: _ui_src_b
+
+- name: "Factory UI | Set build context"
+  ansible.builtin.set_fact:
+    factory_ui_build_context: >-
+      {{
+        (platform_repo_dir ~ '/services/factory_ui') if _ui_src_a.stat.exists
+        else (platform_repo_dir ~ '/platform/services/factory_ui') if _ui_src_b.stat.exists
+        else ''
+      }}
+
+- name: "Factory UI | Fail if UI source not found"
+  ansible.builtin.fail:
+    msg: "No se encontró services/factory_ui en repo sincronizado."
+  when: factory_ui_build_context | length == 0
+
+- name: "Factory UI | Render .env (DB creds from vault)"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/factory_ui/.env"
+    mode: "0600"
+  no_log: true
+
+- name: "Factory UI | Render compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/factory_ui/docker-compose.yml"
+    mode: "0644"
+
+- name: "Factory UI | Ensure .streamlit dir"
+  ansible.builtin.file:
+    path: "{{ factory_ui_build_context }}/.streamlit"
+    state: directory
+    mode: "0755"
+
+- name: "Factory UI | Render streamlit theme config"
+  ansible.builtin.copy:
+    content: |
+      [theme]
+      base="dark"
+      primaryColor="#6366f1"
+    dest: "{{ factory_ui_build_context }}/.streamlit/config.toml"
+    mode: "0644"
+
+- name: "Factory UI | Deploy (compose up)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --env-file
+      - "{{ platform_compose_dir }}/factory_ui/.env"
+      - -f
+      - "{{ platform_compose_dir }}/factory_ui/docker-compose.yml"
+      - up
+      - -d
+      - --build
+      - --remove-orphans
+  changed_when: false

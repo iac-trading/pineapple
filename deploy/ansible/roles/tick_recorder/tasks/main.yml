@@ -1,0 +1,90 @@
+---
+# deploy/ansible/roles/tick_recorder/tasks/main.yml
+
+- name: "00 | tick_recorder | Ensure deploy dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/13_tick_recorder"
+    state: directory
+    mode: "0755"
+
+- name: "01 | tick_recorder | Repo sync"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: repo_sync_enabled | bool
+
+- name: "02 | tick_recorder | Render .env"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/13_tick_recorder/.env"
+    mode: "0600"
+
+- name: "03 | tick_recorder | Detect build context (option A)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/services/13_tick_recorder"
+  register: _tr_src_a
+
+- name: "04 | tick_recorder | Detect build context (option B)"
+  ansible.builtin.stat:
+    path: "{{ platform_repo_dir }}/platform/services/13_tick_recorder"
+  register: _tr_src_b
+
+- name: "05 | tick_recorder | Set build context"
+  ansible.builtin.set_fact:
+    tick_recorder_build_context: >-
+      {{
+        (platform_repo_dir ~ '/services/13_tick_recorder') if _tr_src_a.stat.exists
+        else (platform_repo_dir ~ '/platform/services/13_tick_recorder') if _tr_src_b.stat.exists
+        else ''
+      }}
+
+- name: "06 | tick_recorder | Fail if source not found"
+  ansible.builtin.fail:
+    msg: "No se encontró services/13_tick_recorder en {{ platform_repo_dir }}"
+  when: tick_recorder_build_context | length == 0
+
+- name: "07 | tick_recorder | Render docker-compose.yml"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/13_tick_recorder/docker-compose.yml"
+    mode: "0644"
+
+- name: "08 | tick_recorder | Wait for Docker"
+  become: true
+  ansible.builtin.command:
+    argv: [docker, info]
+  register: _docker_info
+  retries: 30
+  delay: 2
+  until: _docker_info.rc == 0
+  changed_when: false
+
+- name: "09 | tick_recorder | Deploy (compose up)"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --env-file
+      - "{{ platform_compose_dir }}/13_tick_recorder/.env"
+      - -f
+      - "{{ platform_compose_dir }}/13_tick_recorder/docker-compose.yml"
+      - up
+      - -d
+      - --build
+  environment:
+    COMPOSE_BAKE: "0"
+  register: _tr_up
+  changed_when: >-
+    'Recreating' in (_tr_up.stdout | default('')) or
+    'Creating'   in (_tr_up.stdout | default('')) or
+    'Building'   in (_tr_up.stdout | default(''))
+
+- name: "10 | tick_recorder | Verify running"
+  become: true
+  ansible.builtin.command:
+    argv: [docker, inspect, --format, "{{ '{{.State.Status}}' }}", tick_recorder]
+  register: _tr_status
+  retries: 10
+  delay: 3
+  until: _tr_status.stdout.strip() == "running"
+  changed_when: false

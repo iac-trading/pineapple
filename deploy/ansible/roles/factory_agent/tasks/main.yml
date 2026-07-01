@@ -1,0 +1,123 @@
+---
+- name: "00 | factory_agent | Stop on hosts where disabled"
+  ansible.builtin.meta: end_host
+  when: not (factory_agent_enabled | default(false) | bool)
+
+- name: "01 | factory_agent | Ensure dir"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/30_factory_agent"
+    state: directory
+    mode: "0755"
+
+- name: "02 | factory_agent | Repo sync"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: (repo_sync_enabled | default(false) | bool)
+
+- name: "03 | factory_agent | Resolve repo dir"
+  ansible.builtin.set_fact:
+    _platform_repo_dir: "{{ platform_repo_dir | default('/opt/platform/repo') }}"
+
+- name: "04 | factory_agent | Check repo dir exists"
+  ansible.builtin.stat:
+    path: "{{ _platform_repo_dir }}"
+  register: _repo_dir
+
+- name: "05 | factory_agent | List repo top-level (debug)"
+  ansible.builtin.command: "ls -la {{ _platform_repo_dir }}"
+  register: _repo_ls
+  changed_when: false
+  failed_when: false
+
+- name: "06 | factory_agent | Candidate build contexts"
+  ansible.builtin.set_fact:
+    _fa_candidates:
+      - "{{ factory_agent_build_context_override | default('') }}"
+      - "{{ _platform_repo_dir }}/services/factory_agent"
+      - "{{ _platform_repo_dir }}/platform/services/factory_agent"
+      - "{{ _platform_repo_dir }}/apps/factory_agent"
+      - "{{ _platform_repo_dir }}/factory_agent"
+      - "{{ _platform_repo_dir }}/services/factory-agent"
+      - "{{ _platform_repo_dir }}/platform/services/factory-agent"
+
+- name: "07 | factory_agent | Stat candidate paths"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ _fa_candidates | reject('equalto','') | list }}"
+  register: _fa_stat
+
+# Solo busca si NO encontramos nada en el paso anterior (evita correr find si no es necesario)
+- name: "08 | factory_agent | Find factory_agent anywhere (fallback)"
+  ansible.builtin.find:
+    paths: "{{ _platform_repo_dir }}"
+    patterns:
+      - "factory_agent"
+      - "factory-agent"
+    file_type: directory
+    recurse: true
+    depth: 6
+  register: _fa_find
+  when: (_fa_stat.results | selectattr('stat.exists') | list | length) == 0
+
+# --- FIX: Dividimos la lógica para evitar error 'dict object has no attribute files' ---
+
+- name: "09a | factory_agent | Get context from STAT result"
+  ansible.builtin.set_fact:
+    _ctx_stat: "{{ _fa_stat.results | selectattr('stat.exists') | map(attribute='item') | list | first | default('') }}"
+
+- name: "09b | factory_agent | Get context from FIND result (only if ran)"
+  ansible.builtin.set_fact:
+    _ctx_find: "{{ _fa_find.files | map(attribute='path') | list | first | default('') }}"
+  when:
+    - _fa_find.skipped is not defined or not _fa_find.skipped
+    - _fa_find.files is defined
+
+- name: "09c | factory_agent | Finalize build context"
+  ansible.builtin.set_fact:
+    factory_agent_build_context: "{{ _ctx_stat if (_ctx_stat | length > 0) else (_ctx_find | default('')) }}"
+
+# -----------------------------------------------------------------------------------
+
+- name: "10 | factory_agent | Fail if not found (with hints)"
+  ansible.builtin.fail:
+    msg: |
+      No se encontró el servicio factory_agent dentro de: {{ _platform_repo_dir }}
+
+      Top-level (debug):
+      {{ _repo_ls.stdout | default('N/A') }}
+
+      Candidatos probados:
+      {{ (_fa_candidates | reject('equalto','') | list) | to_nice_yaml }}
+
+      Soluciones:
+        1) Activa repo_sync en group_vars/cmp.yml (repo_sync_enabled: true)
+        2) O define factory_agent_build_context_override con la ruta real, ejemplo:
+             factory_agent_build_context_override: "/opt/platform/repo/lo_que_sea/factory_agent"
+  when: factory_agent_build_context | length == 0
+
+- name: "11 | factory_agent | Render .env"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ platform_compose_dir }}/30_factory_agent/.env"
+    mode: "0600"
+
+- name: "12 | factory_agent | Render compose"
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ platform_compose_dir }}/30_factory_agent/docker-compose.yml"
+    mode: "0644"
+
+- name: "13 | factory_agent | Deploy"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --env-file
+      - "{{ platform_compose_dir }}/30_factory_agent/.env"
+      - -f
+      - "{{ platform_compose_dir }}/30_factory_agent/docker-compose.yml"
+      - up
+      - -d
+      - --build
+      - --remove-orphans
+  changed_when: false

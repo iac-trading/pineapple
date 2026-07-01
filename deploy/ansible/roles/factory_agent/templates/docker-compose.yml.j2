@@ -1,0 +1,30 @@
+services:
+  factory_agent:
+    build:
+      context: "{{ factory_agent_build_context }}"
+      dockerfile: Dockerfile
+    image: factory/agent:latest
+    container_name: factory_agent_live
+    restart: always
+    env_file: .env
+    shm_size: '10.24gb'
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "{{ ray_dashboard_port | default(8265) }}:8265"
+      - "50051:50051"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+    networks:
+      - {{ docker_network_name | default('platform_net') }}
+
+# AGREGAR ESTA SECCIÓN AL FINAL:
+networks:
+  {{ docker_network_name | default('platform_net') }}:
+    external: true

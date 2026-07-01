@@ -1,0 +1,20 @@
+---
+# deploy/ansible/roles/strategies/tasks/main.yml
+
+- name: "Strategies | Ensure directories"
+  ansible.builtin.file:
+    path: "{{ platform_compose_dir }}/strategies_build"
+    state: directory
+    mode: "0755"
+
+- name: "Strategies | Repo Sync"
+  ansible.builtin.include_role:
+    name: repo_sync
+  when: repo_sync_enabled | bool
+
+# Iteramos sobre las estrategias definidas en group_vars/cmp/main.yml
+- name: "Strategies | Process Strategies (Build & Register)"
+  ansible.builtin.include_tasks: deploy_one.yml
+  loop: "{{ strategies_enabled | default([]) }}"
+  loop_control:
+    loop_var: strat
