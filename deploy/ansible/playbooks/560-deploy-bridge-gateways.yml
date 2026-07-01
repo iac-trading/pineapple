@@ -3,7 +3,7 @@
 # =================================================================
 ---
 - name: 560 | Trade | Ejecución LIVE y Puentes de Broker
-  hosts: trade
+  hosts: trd
   become: true
   gather_facts: true
   tags: [ "bridge", "gateways", "execution" ]
