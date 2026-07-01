@@ -9,9 +9,19 @@
     msg: "Error: El nodo DATA ({{ postgres_host }}) no responde en el puerto 5432. Abortando inicio de Airflow."
 
 # FASE 1: Seguridad y Llaves
+- name: "Airflow | [LOCAL] Ensure secrets directory exists"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.file:
+    path: "/home/aqinfra/pineapple/secrets/airflow_ssh"
+    state: directory
+    mode: "0700"
+
 - name: "Airflow | [LOCAL] Generar llaves SSH"
   delegate_to: localhost
   run_once: true
+  become: false
   ansible.builtin.openssh_keypair:
     path: "/home/aqinfra/pineapple/secrets/airflow_ssh/id_ed25519"
     type: ed25519
