@@ -23,6 +23,7 @@
   when: (repo_distribution_mode | default('sync')) == 'sync'
 
 - name: "02 | repo_sync | Sync repo from controller (mode=sync)"
+  become: false
   ansible.builtin.synchronize:
     src: "{{ repo_sync_src }}/"
     dest: "{{ repo_sync_dest }}/"
