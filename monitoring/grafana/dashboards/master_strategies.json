@@ -1,0 +1,137 @@
+{
+  "annotations": { "list": [] },
+  "description": "Tablero Maestro de Estrategias y Ejecución — Axio-Quant Observability 2.0",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "title": "💰 PORTAFOLIO: PnL Acumulado (Total USD)",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT SUM(price * qty * (CASE WHEN side = 'buy' THEN -1 ELSE 1 END)) AS value FROM orders WHERE status = 'filled'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      }
+    },
+    {
+      "title": "📉 EXPOSICIÓN: Valor Abierto en Mercado",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(qty), 0) AS value FROM strategy_instances WHERE is_active = TRUE AND status = 'running'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "🚨 RIESGO: Órdenes Rechazadas (Últ. 24h)",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS value FROM journal_events WHERE event_type = 'ORDER_REJECTED' AND created_at >= NOW() - INTERVAL '24 hours'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "📊 PERFORMANCE: Win Rate vs Sharpe por Estrategia",
+      "type": "table",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "rawSql": "SELECT \n  blueprint_id,\n  symbol,\n  COUNT(*) FILTER (WHERE status = 'filled') AS total_trades,\n  AVG(CASE WHEN status = 'filled' THEN 1 ELSE 0 END) AS win_rate,\n  SUM(price * qty * (CASE WHEN side = 'buy' THEN -1 ELSE 1 END)) AS pnl\nFROM orders\nGROUP BY 1, 2\nORDER BY pnl DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "win_rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "color", "value": { "mode": "continuous-RdYlGn" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "⚖️ BALANCE: Shadow vs Live Distribution",
+      "type": "piechart",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 10, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT is_shadow::text as metric, COUNT(*) as value FROM orders GROUP BY 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "📜 HISTORIAL: Últimos 20 Eventos de Ejecución",
+      "type": "table",
+      "datasource": { "type": "postgres", "uid": "timescaledb_platform" },
+      "gridPos": { "h": 10, "w": 16, "x": 8, "y": 14 },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at, actor, event_type, payload->>'error' as details FROM journal_events ORDER BY created_at DESC LIMIT 20",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["trading", "v3", "master"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "MASTER STRATEGIES — Axio-Quant v2",
+  "uid": "axio-master-v2",
+  "version": 1
+}

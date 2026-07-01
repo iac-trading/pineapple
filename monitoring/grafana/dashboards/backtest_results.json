@@ -1,0 +1,185 @@
+{
+  "annotations": { "list": [] },
+  "description": "Resultados de backtesting — Ranking, métricas y comparación de motores — Axio-Quant Factory V3",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Jobs por Estado",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE status = 'done') AS completados, COUNT(*) FILTER (WHERE status = 'running') AS ejecutando, COUNT(*) FILTER (WHERE status = 'queued') AS en_cola, COUNT(*) FILTER (WHERE status = 'error') AS errores FROM backtest_jobs",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "value": 0, "color": "blue" }] }
+        }
+      }
+    },
+    {
+      "title": "Top 10 — Ranking por Sharpe",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT ROW_NUMBER() OVER (ORDER BY (r.metrics->>'sharpe')::float DESC) AS rank, r.blueprint_id, r.symbol, r.broker, r.metrics->>'engine' AS engine, ROUND((r.metrics->>'sharpe')::numeric, 4) AS sharpe, ROUND(((r.metrics->>'total_return')::float * 100)::numeric, 2) AS return_pct, ROUND(((r.metrics->>'max_drawdown')::float * 100)::numeric, 2) AS maxdd_pct, ROUND(((r.metrics->>'win_rate')::float * 100)::numeric, 1) AS win_rate_pct, (r.metrics->>'n_trades')::int AS trades FROM backtest_results r JOIN backtest_jobs j ON j.job_id = r.job_id WHERE j.status = 'done' ORDER BY (r.metrics->>'sharpe')::float DESC LIMIT 10",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "sharpe" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "value": -999, "color": "red" },
+                    { "value": 0, "color": "yellow" },
+                    { "value": 1, "color": "green" }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "return_pct" },
+            "properties": [
+              { "id": "unit", "value": "percent" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Sharpe Promedio por Motor",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT r.metrics->>'engine' AS engine, ROUND(AVG((r.metrics->>'sharpe')::float)::numeric, 4) AS avg_sharpe, COUNT(*) AS n_backtests FROM backtest_results r JOIN backtest_jobs j ON j.job_id = r.job_id WHERE j.status = 'done' GROUP BY r.metrics->>'engine' ORDER BY avg_sharpe DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 80, "gradientMode": "scheme" }
+        }
+      }
+    },
+    {
+      "title": "Return % Promedio por Motor",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT r.metrics->>'engine' AS engine, ROUND((AVG((r.metrics->>'total_return')::float) * 100)::numeric, 2) AS avg_return_pct, ROUND((AVG((r.metrics->>'max_drawdown')::float) * 100)::numeric, 2) AS avg_maxdd_pct FROM backtest_results r JOIN backtest_jobs j ON j.job_id = r.job_id WHERE j.status = 'done' GROUP BY r.metrics->>'engine' ORDER BY avg_return_pct DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-GrYlRd" },
+          "custom": { "fillOpacity": 80 }
+        }
+      }
+    },
+    {
+      "title": "Backtests por Día",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('day', j.created_at) AS time, COUNT(*) FILTER (WHERE j.status = 'done') AS completados, COUNT(*) FILTER (WHERE j.status = 'error') AS errores FROM backtest_jobs j WHERE j.created_at >= NOW() - INTERVAL '30 days' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "pointSize": 5
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "completados" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#10b981", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "errores" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#ef4444", "mode": "fixed" } }]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Distribución de Sharpe (Histograma)",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT (r.metrics->>'sharpe')::float AS sharpe FROM backtest_results r JOIN backtest_jobs j ON j.job_id = r.job_id WHERE j.status = 'done'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 80 }
+        }
+      },
+      "options": { "bucketSize": 0.5 }
+    },
+    {
+      "title": "Win Rate vs Sharpe (Scatter)",
+      "type": "xychart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT (r.metrics->>'sharpe')::float AS sharpe, (r.metrics->>'win_rate')::float * 100 AS win_rate, r.metrics->>'engine' AS engine FROM backtest_results r JOIN backtest_jobs j ON j.job_id = r.job_id WHERE j.status = 'done'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "seriesMapping": "manual",
+        "dims": { "x": "sharpe", "frame": 0 },
+        "series": [{ "frame": 0, "x": "sharpe", "y": "win_rate" }]
+      }
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["backtesting", "trading", "v3"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "title": "Backtest Results — Axio-Quant",
+  "uid": "axio-backtest-results",
+  "version": 1
+}

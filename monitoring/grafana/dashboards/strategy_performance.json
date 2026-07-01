@@ -1,0 +1,130 @@
+{
+  "annotations": { "list": [] },
+  "description": "Performance de estrategias live — Axio-Quant Factory V3",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Instancias por Estado",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT status, COUNT(*) AS count FROM strategy_instances WHERE is_active = TRUE GROUP BY status",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Resumen de Instancias Activas",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT name, blueprint_id, symbol, broker, status, desired_status, qty, last_heartbeat, EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::int AS seconds_since_hb FROM strategy_instances WHERE is_active = TRUE ORDER BY status DESC, name",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "running": { "color": "green", "text": "🟢 RUNNING" }, "stopped": { "color": "orange", "text": "⚪ STOPPED" }, "error": { "color": "red", "text": "🔴 ERROR" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "PnL por Instancia (Cashflow Neto)",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT instance_name, net_cashflow, total_trades FROM v_factory_pnl ORDER BY net_cashflow DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-GrYlRd" },
+          "custom": { "fillOpacity": 80 }
+        }
+      }
+    },
+    {
+      "title": "Trades Recientes (Última Hora)",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT o.ts, i.name AS strategy, o.side, o.symbol, o.qty, o.price, o.status FROM orders o JOIN strategy_instances i ON i.instance_id = o.instance_id WHERE o.ts >= NOW() - INTERVAL '1 hour' ORDER BY o.ts DESC LIMIT 50",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Health — Segundos desde último Heartbeat",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "postgres", "uid": "trading_db" },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS metric, EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::int AS value FROM strategy_instances WHERE is_active = TRUE AND last_heartbeat IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 30, "color": "yellow" },
+              { "value": 120, "color": "red" }
+            ]
+          },
+          "min": 0,
+          "max": 300,
+          "unit": "s"
+        }
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["trading", "strategies", "v3"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Strategy Performance — Axio-Quant",
+  "uid": "axio-strategy-performance",
+  "version": 1
+}
