@@ -1,0 +1,149 @@
+[DEPRECATION WARNING]: PARAMIKO_HOST_KEY_AUTO_ADD option, This option was moved
+ to the plugin itself, use Use the option from the plugin itself. instead. This
+ feature will be removed from ansible-core in version 2.20. Deprecation 
+warnings can be disabled by setting deprecation_warnings=False in ansible.cfg.
+[DEPRECATION WARNING]: PARAMIKO_LOOK_FOR_KEYS option, This option was moved to 
+the plugin itself, use Use the option from the plugin itself. instead. This 
+feature will be removed from ansible-core in version 2.20. Deprecation warnings
+ can be disabled by setting deprecation_warnings=False in ansible.cfg.
+
+PLAY [590.1 | Validate | Shadow Trading & Centralized Alerts] ******************
+
+TASK [SETUP | Generate static random instance ID] ******************************
+ok: [localhost]
+
+TASK [SCHEMA | Clean up old test runs] *****************************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [SCHEMA | Check is_shadow in strategy_instances] **************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [SCHEMA | Check is_shadow in orders] **************************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [SCHEMA | Check correlation_id in journal_events] *************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [BRIDGE | Inject Shadow Test Instance] ************************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [BRIDGE | Send Shadow Order via NATS] *************************************
+changed: [localhost -> VM-AQ-BRAIN(10.100.100.201)]
+
+TASK [PAUSE | Processing Shadow Order] *****************************************
+Pausing for 3 seconds
+ok: [localhost]
+
+TASK [VERIFY | Bridge Logs for Shadow Execution] *******************************
+changed: [localhost -> VM-AQ-TRADE(10.100.100.205)]
+
+TASK [ALERT | Send Mock Recon Divergence] **************************************
+changed: [localhost -> VM-AQ-BRAIN(10.100.100.201)]
+
+TASK [PAUSE | Alert Manager Processing] ****************************************
+Pausing for 5 seconds
+ok: [localhost]
+
+TASK [VERIFY | Alert Manager Logs (Centralized Delivery)] **********************
+changed: [localhost -> VM-AQ-BRAIN(10.100.100.201)]
+
+TASK [CLEANUP | Remove Test Instance] ******************************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+PLAY [590.2 | Validate | Risk & Position Sizing] *******************************
+
+TASK [SETUP | Generate static random instance and correlation IDs] *************
+ok: [VM-AQ-TRADE]
+
+TASK [TEST | Check Bridge Balance Endpoint] ************************************
+changed: [VM-AQ-TRADE]
+
+TASK [VERIFY | Balance Response] ***********************************************
+ok: [VM-AQ-TRADE] => {
+    "msg": "✅ Bridge balance reported: 0.0 USD"
+}
+
+TASK [TEST | Send Dynamic Sizing Intent] ***************************************
+changed: [VM-AQ-TRADE]
+
+TASK [WAIT | Processing] *******************************************************
+Pausing for 2 seconds
+ok: [VM-AQ-TRADE]
+
+TASK [TEST | Verify Risk Engine Logs for Resizing] *****************************
+changed: [VM-AQ-TRADE]
+
+TASK [VERIFY | Resize Logic or Warning in Logs] ********************************
+ok: [VM-AQ-TRADE] => {
+    "changed": false,
+    "msg": "All assertions passed"
+}
+
+PLAY [590.3 | Validate | Reconciliation Hub Audit] *****************************
+
+TASK [SETUP | Generate static random instance ID] ******************************
+ok: [localhost]
+
+TASK [SETUP | Inject Dummy Blueprint and Test Instance into DB] ****************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [TRIGGER | Force quick reconciliation check] ******************************
+changed: [localhost -> VM-AQ-BRAIN(10.100.100.201)]
+
+TASK [VERIFY | Check if Instance was HALTED in DB] *****************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+TASK [ASSERT | Instance is Stopped] ********************************************
+ok: [localhost] => {
+    "changed": false,
+    "msg": "✅ SUCCESS: The Auditor detected the divergence and HALTED the strategy."
+}
+
+TASK [CLEANUP | Remove Test Instance and Blueprint] ****************************
+changed: [localhost -> VM-AQ-DATA(10.100.100.202)]
+
+PLAY [590.4 | Debug | Fetch Risk Engine Info] **********************************
+
+TASK [Status | Check container] ************************************************
+ok: [VM-AQ-TRADE]
+
+TASK [Logs | Get last 100 lines] ***********************************************
+ok: [VM-AQ-TRADE]
+
+TASK [Output | Display PS] *****************************************************
+ok: [VM-AQ-TRADE] => {
+    "_ps.stdout_lines": [
+        "CONTAINER ID   IMAGE                     COMMAND                CREATED          STATUS          PORTS     NAMES",
+        "068aa454fd86   risk_engine-risk_engine   \"python app/main.py\"   11 minutes ago   Up 11 minutes             risk_engine"
+    ]
+}
+
+TASK [Output | Display Logs] ***************************************************
+ok: [VM-AQ-TRADE] => {
+    "_logs.stdout_lines": [
+        "--- Risk Engine Process Started ---",
+        "🚀 Initializing Risk Engine...",
+        "Starting asyncio event loop...",
+        "🛡️ Institutional Risk Engine Starting...",
+        "NATS_URL: nats://nats_admin:NatsMessagePass2026!@10.100.100.201:4222",
+        "Connecting to NATS...",
+        "✅ NATS Connected successfully.",
+        "Subscribing to subjects...",
+        "Guarding orders.intent -> orders.submit",
+        "Performing initial sync...",
+        "Initial sync done.",
+        "Entering main loop...",
+        "📥 Received Order Intent: {\"instance_id\": \"29adcf5b-f98e-59f6-a852-fd5ac5fabd36\", \"symbol\": \"BTC/USDT\", \"side\": \"BUY\", \"qty\": 1000.0, \"correlation_id\": \"cd1e737f-f657-55eb-ac7e-0b2fbd3408fc\", \"meta\": {\"size_model\": \"ATR_RISK_1PCT\", \"broker\": \"paper\"}}",
+        "📊 [ATR] Attempting calculation for BTC/USDT (Host: 10.100.100.202)",
+        "📊 [ATR] Found 0 daily candles for BTC/USDT",
+        "⚠️ [ATR] Insufficient data for BTC/USDT: 0 < 14",
+        "⚠️ ATR for BTC/USDT unknown. Falling back to original qty: 1000.0",
+        "⚠️ Price for BTC/USDT unknown. Using conservative fallback for Risk Check.",
+        "❌ [RISK REJECT] 29adcf5b-f98e-59f6-a852-fd5ac5fabd36: LeverageGuard: Price for BTC/USDT unknown. Cannot authorize blind risk."
+    ]
+}
+
+PLAY RECAP *********************************************************************
+VM-AQ-TRADE                : ok=11   changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+localhost                  : ok=19   changed=14   unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+

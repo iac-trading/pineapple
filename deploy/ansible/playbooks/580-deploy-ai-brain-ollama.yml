@@ -1,0 +1,401 @@
+# =================================================================
+# 580 | Deploy Ollama Engine, AI Brain & Models Provisioning
+# =================================================================
+---
+- name: 580.1 | AI | Desplegar Orquestador de IA Local (Ollama & MCP)
+  hosts: ai
+  become: true
+  tags: [ "local_ai", "ai_orchestrator" ]
+
+  vars:
+    ollama_port: 11434
+    ai_model_default: "llama3:8b"
+    docker_network_name: "infra-trade"
+
+  tasks:
+    - name: "AQ | IA | Asegurar directorios de persistencia (Compose)"
+      ansible.builtin.file:
+        path: "/opt/platform/compose/ai_orch"
+        state: directory
+        mode: "0775"
+        owner: "1000"
+        group: "1000"
+
+    - name: "AQ | IA | Asegurar directorios de persistencia (Ollama)"
+      ansible.builtin.file:
+        path: "/opt/platform/runtime/ollama"
+        state: directory
+        mode: "0775"
+        owner: "0"
+        group: "0"
+
+    - name: "AQ | IA | Crear estructura del Strategy Hub (Cerebro de Trading)"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0775"
+        owner: "1000"
+        group: "1000"
+      loop:
+        - "/opt/platform/strategy_hub"
+        - "/opt/platform/strategy_hub/workspace"
+        - "/opt/platform/strategy_hub/market_data"
+        - "/opt/platform/strategy_hub/risk_configs"
+        - "/opt/platform/strategy_hub/monitoring"
+
+    - name: "AQ | IA | Desplegar stack de Ollama (IA Engine)"
+      community.docker.docker_container:
+        name: aq_ollama_engine
+        image: ollama/ollama:latest
+        state: started
+        restart_policy: always
+        pull: missing
+        cpus: 8.0
+        memory: 16g
+        volumes:
+          - "/opt/platform/runtime/ollama:/root/.ollama"
+        ports:
+          - "{{ ollama_port }}:11434"
+        networks:
+          - name: "{{ docker_network_name }}"
+          - name: "bridge"
+        env:
+          OLLAMA_KEEP_ALIVE: "24h"
+          OLLAMA_MAX_PARALLEL_DOWNLOADS: "1"
+        sysctls:
+          net.ipv6.conf.all.disable_ipv6: 1
+
+    - name: "AQ | IA | Verificar si {{ ai_model_default }} ya está disponible"
+      ansible.builtin.command:
+        cmd: "docker exec aq_ollama_engine ollama list"
+      register: ollama_existing
+      changed_when: false
+
+    - name: "AQ | IA | Mostrar modelos existentes"
+      ansible.builtin.debug:
+        msg: "Modelos actuales: {{ ollama_existing.stdout | default('ninguno') }}"
+
+    - name: "AQ | IA | Disparar pull de {{ ai_model_default }} vía API"
+      ansible.builtin.uri:
+        url: "http://localhost:{{ ollama_port }}/api/pull"
+        method: POST
+        body_format: json
+        body:
+          name: "{{ ai_model_default }}"
+          stream: false
+        status_code: [200, 408]
+        timeout: 10
+      when: "ai_model_default not in ollama_existing.stdout"
+      register: api_pull_launch
+      ignore_errors: true
+
+    - name: "AQ | IA | Esperar a que el modelo {{ ai_model_default }} esté listo"
+      ansible.builtin.command:
+        cmd: "docker exec aq_ollama_engine ollama list"
+      register: ollama_list
+      until: ai_model_default in ollama_list.stdout
+      retries: 240
+      delay: 30
+      changed_when: false
+      when: "ai_model_default not in ollama_existing.stdout"
+
+    - name: "AQ | IA | Limpiar imágenes Docker huérfanas acumuladas"
+      ansible.builtin.shell: |
+        BEFORE=$(docker images -f dangling=true -q | wc -l)
+        docker image prune -f
+        echo "Eliminadas $BEFORE imágenes huérfanas"
+      register: prune_result
+      changed_when: "'Eliminadas 0' not in prune_result.stdout"
+
+    - name: "AQ | IA | Copiar Dockerfile al host"
+      ansible.builtin.copy:
+        src: files/brain.Dockerfile
+        dest: "/opt/platform/strategy_hub/brain.Dockerfile"
+        mode: "0644"
+
+    - name: "AQ | IA | Construir imagen optimizada del Brain (Persistent)"
+      community.docker.docker_image:
+        name: aq-ai-brain:latest
+        build:
+          path: "/opt/platform/strategy_hub"
+          dockerfile: "brain.Dockerfile"
+        source: build
+        state: present
+
+    - name: "AQ | IA | Desplegar AI Strategy Manager (The Brain)"
+      community.docker.docker_container:
+        name: aq_ai_strategy_manager
+        image: aq-ai-brain:latest
+        state: started
+        restart_policy: always
+        networks:
+          - name: "{{ docker_network_name }}"
+          - name: "bridge"
+        volumes:
+          - "/opt/platform/strategy_hub:/app/hub"
+          - "/opt/platform/runtime/ollama:/root/.ollama"
+          - "/var/run/docker.sock:/var/run/docker.sock"
+        ports:
+          - "8010:8010"
+        env:
+          OLLAMA_HOST: "http://aq_ollama_engine:11434"
+          NATS_URL: "{{ nats_url }}"
+          NATS_USER: "{{ nats_user }}"
+          NATS_PASSWORD: "{{ nats_password }}"
+          POSTGRES_HOST: "10.100.100.202"
+          POSTGRES_DB: "{{ postgres_db }}"
+          POSTGRES_USER: "{{ postgres_user }}"
+          POSTGRES_PASSWORD: "{{ postgres_password }}"
+          NETBOX_URL: "http://10.100.100.201:8001"
+          NETBOX_TOKEN: "dummy_netbox_token"
+          PROMETHEUS_URL: "http://10.100.100.201:9090"
+          AIRFLOW_URL: "http://10.100.100.201:8080/api/v1"
+          AIRFLOW_USER: "{{ airflow_admin_user }}"
+          AIRFLOW_PASSWORD: "{{ airflow_admin_password }}"
+          GRAFANA_URL: "http://10.100.100.201:3000"
+          GRAFANA_USER: "{{ grafana_admin_user }}"
+          GRAFANA_PASSWORD: "{{ grafana_admin_password }}"
+          RISK_MAX_EXPOSURE: "100000"
+        command: python3 /app/hub/brain_v1.py
+
+- name: 580.2 | AI | Actualizar e Iniciar Cerebro de IA (V3 - API & Control)
+  hosts: ai
+  become: true
+  tasks:
+    - name: "AQ | IA | Instalar FastAPI y Uvicorn en el contenedor"
+      ansible.builtin.shell:
+        cmd: "docker exec aq_ai_strategy_manager pip install fastapi uvicorn"
+      changed_when: false
+
+    - name: "AQ | IA | Escribir código del Brain V3 (Con API)"
+      ansible.builtin.copy:
+        dest: "/opt/platform/strategy_hub/brain_v1.py"
+        mode: "0644"
+        content: |
+          import psycopg2
+          import logging
+          import asyncio
+          import os
+          import json
+          import time
+          import requests
+          import subprocess
+          from pathlib import Path
+          from fastapi import FastAPI
+          from threading import Thread
+
+          logging.basicConfig(level=logging.INFO, format="%(asctime)s [AI-BRAIN] %(message)s")
+          logger = logging.getLogger("AI-Brain")
+
+          STRATEGIES_PATH = Path("/app/hub/workspace")
+          OLLAMA_URL = "http://aq_ollama_engine:11434/api/generate"
+
+          DB_PARAMS = {
+              "host": os.getenv("POSTGRES_HOST", "10.100.100.202"),
+              "dbname": os.getenv("POSTGRES_DB", "trading"),
+              "user": os.getenv("POSTGRES_USER", "tsdb"),
+              "password": os.getenv("POSTGRES_PASSWORD")
+          }
+
+          app = FastAPI()
+
+          @app.get("/health")
+          def health(): return {"status": "ok"}
+
+          @app.post("/news/ingest")
+          def ingest_news(data: dict):
+              conn = psycopg2.connect(**DB_PARAMS)
+              try:
+                  with conn.cursor() as cur:
+                      cur.execute(
+                          "INSERT INTO ai_news_context (title, content, source, sentiment) VALUES (%s, %s, %s, %s)",
+                          (data.get("title"), data.get("content"), data.get("source"), data.get("sentiment", "neutral"))
+                      )
+                      conn.commit()
+                  return {"status": "ingested"}
+              except Exception as e: return {"error": str(e)}
+              finally: conn.close()
+
+          @app.get("/infra/nodes")
+          def get_nodes():
+              url = os.getenv("NETBOX_URL", "http://10.100.100.201:8001")
+              token = os.getenv("NETBOX_TOKEN")
+              try:
+                  headers = {"Authorization": f"Token {token}"}
+                  r = requests.get(f"{url}/api/virtualization/virtual-machines/?limit=1000", headers=headers, timeout=5)
+                  return r.json()
+              except Exception as e: return {"error": str(e)}
+
+          @app.get("/infra/metrics")
+          def get_metrics():
+              prom_url = os.getenv("PROMETHEUS_URL", "http://10.100.100.201:9090")
+              try:
+                  queries = {
+                      "cpu": '100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
+                      "ram": '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100'
+                  }
+                  results = {}
+                  for key, q in queries.items():
+                      r = requests.get(f"{prom_url}/api/v1/query", params={"query": q}, timeout=5)
+                      results[key] = r.json().get("data", {}).get("result", [])
+                  return results
+              except Exception as e: return {"error": str(e)}
+
+          @app.get("/infra/jobs")
+          def get_jobs():
+              airflow_url = os.getenv("AIRFLOW_URL", "http://10.100.100.201:8080/api/v1")
+              user = os.getenv("AIRFLOW_USER") or "admin"
+              password = os.getenv("AIRFLOW_PASSWORD", "")
+              try:
+                  r = requests.get(f"{airflow_url}/dags", auth=(user, password), timeout=5)
+                  return r.json()
+              except Exception as e: return {"error": str(e)}
+
+          @app.post("/infra/dashboard/create")
+          def create_dashboard(data: dict):
+              grafana_url = os.getenv("GRAFANA_URL", "http://10.100.100.201:3000")
+              user = os.getenv("GRAFANA_USER", "admin")
+              password = os.getenv("GRAFANA_PASSWORD")
+              try:
+                  headers = {"Content-Type": "application/json"}
+                  auth = (user, password)
+                  folder_id = 0
+                  r_folders = requests.get(f"{grafana_url}/api/folders", auth=auth, timeout=5)
+                  if r_folders.status_code == 200:
+                      for f in r_folders.json():
+                          if f.get("title") == "Infraestructura":
+                               folder_id = f.get("id")
+                               break
+                  payload = {"dashboard": data.get("dashboard"), "overwrite": True, "folderId": folder_id}
+                  r = requests.post(f"{grafana_url}/api/dashboards/db", auth=auth, json=payload, headers=headers, timeout=5)
+                  return r.json()
+              except Exception as e: return {"error": str(e)}
+
+          @app.get("/strategies/{strat_id}/code")
+          def get_code(strat_id: str):
+              try:
+                  path = STRATEGIES_PATH / strat_id / "main.py"
+                  if not path.exists():
+                      return {"error": f"Strategy folder not found: {strat_id}"}
+                  return {"code": path.read_text()}
+              except Exception as e: return {"error": str(e)}
+
+          @app.post("/strategies/{strat_id}/deploy")
+          def deploy_strategy(strat_id: str):
+              try:
+                  path = STRATEGIES_PATH / strat_id
+                  if not path.exists():
+                      return {"error": f"Directory {path} does not exist. Cannot deploy."}
+                  
+                  logger.info(f"🚀 Deploying strategy: {strat_id}")
+                  subprocess.run(["docker", "build", "-t", strat_id, "."], cwd=path, check=True)
+                  subprocess.run(["docker", "rm", "-f", f"live_{strat_id}"], stderr=subprocess.DEVNULL)
+                  subprocess.run(["docker", "run", "-d", "--name", f"live_{strat_id}", "--network", "infra-trade", strat_id], check=True)
+                  return {"status": "deployed", "container": f"live_{strat_id}"}
+              except Exception as e: 
+                  logger.error(f"❌ Deploy failed: {e}")
+                  return {"error": str(e)}
+
+          async def get_market_context(symbol="GLOBAL"):
+              conn = psycopg2.connect(**DB_PARAMS)
+              try:
+                  with conn.cursor() as cur:
+                      cur.execute(
+                          "SELECT title, sentiment_score FROM ai_news_events WHERE symbol = %s OR symbol = 'GLOBAL' ORDER BY ts DESC LIMIT 10",
+                          (symbol,)
+                      )
+                      rows = cur.fetchall()
+                      return "\n".join([f"NOTICIA: {r[0]} (Sentimiento: {r[1]})" for r in rows])
+              except: return "Sin contexto de noticias."
+              finally: conn.close()
+
+          async def generate_ai_code(prompt, context):
+              sys_msg = f"Eres un Estratega Senior. Contexto de mercado actual:\n{context}\n\nGenera Python asíncrono con 'nats-py'. Solo entrega el código."
+              try:
+                  payload = {"model": "llama3:8b", "prompt": f"{sys_msg}\n\nObjetivo: {prompt}", "stream": False}
+                  r = requests.post(OLLAMA_URL, json=payload, timeout=300)
+                  return r.json().get("response", "# Error")
+              except Exception as e: return f"# Error: {e}"
+
+          async def run_auto_backtest(strat_id, symbol="R_75"):
+              conn = psycopg2.connect(**DB_PARAMS)
+              try:
+                  with conn.cursor() as cur:
+                      cur.execute(
+                          "INSERT INTO backtest_jobs (blueprint_id, symbol, status, params) VALUES (%s, %s, 'queued', %s) RETURNING job_id",
+                          (strat_id, symbol, json.dumps({"mode": "ai_verification"}))
+                      )
+                      conn.commit()
+                      return cur.fetchone()[0]
+              except Exception as e:
+                  logger.error(f"❌ Error lanzando backtest: {e}")
+                  return None
+              finally: conn.close()
+
+          async def brain_worker():
+              logger.info(f"🧠 Brain Worker V4.1 Online.")
+              while True:
+                  conn = None
+                  try:
+                      conn = psycopg2.connect(**DB_PARAMS)
+                      with conn.cursor() as cur:
+                          cur.execute("SELECT proposal_id, goal_description FROM ai_strategy_proposals WHERE status = 'pending' LIMIT 1")
+                          row = cur.fetchone()
+                          if row:
+                              pid, desc = row
+                              logger.info(f"💡 Generando estrategia con contexto unificado: {pid}")
+                              context = await get_market_context()
+                              code = await generate_ai_code(desc, context)
+                              
+                              folder = f"strat_{int(time.time())}"
+                              path = STRATEGIES_PATH / folder
+                              path.mkdir(parents=True, exist_ok=True)
+                              with open(path / 'main.py', 'w') as f: f.write(code)
+                              with open(path / 'Dockerfile', 'w') as f:
+                                  f.write("FROM python:3.10-slim\nRUN pip install nats-py\nCOPY main.py .\nCMD [\"python\", \"-u\", \"main.py\"]\n")
+                              
+                              logger.info(f"🧪 Lanzando backtest de validación para {folder}...")
+                              job_id = await run_auto_backtest(folder)
+                              
+                              cur.execute(
+                                  "UPDATE ai_strategy_proposals SET status = 'validating', last_backtest_id = %s WHERE proposal_id = %s",
+                                  (job_id, pid)
+                              )
+                              conn.commit()
+                              logger.info(f"✅ Propuesta {pid} en validación (Job: {job_id})")
+                  except Exception as e: logger.error(f"❌ Error: {e}")
+                  finally:
+                      if conn: conn.close()
+                  await asyncio.sleep(10)
+
+          def start_api():
+              import uvicorn
+              uvicorn.run(app, host="0.0.0.0", port=8010)
+
+          if __name__ == "__main__":
+              Thread(target=start_api, daemon=True).start()
+              asyncio.run(brain_worker())
+
+    - name: "AQ | IA | Limpiar procesos"
+      ansible.builtin.shell:
+        cmd: "docker exec aq_ai_strategy_manager pkill -f brain_v1.py || true"
+      failed_when: false
+      changed_when: false
+
+    - name: "AQ | IA | Iniciar Brain V3 con API expuesta"
+      ansible.builtin.shell:
+        cmd: >
+          docker exec -d 
+          -e POSTGRES_USER="{{ postgres_user }}" 
+          -e POSTGRES_PASSWORD="{{ postgres_password }}" 
+          -e NETBOX_URL="http://10.100.100.201:8001"
+          -e NETBOX_TOKEN="dummy_token"
+          -e PROMETHEUS_URL="http://10.100.100.201:9090"
+          -e AIRFLOW_URL="http://10.100.100.201:8080/api/v1"
+          -e AIRFLOW_USER="{{ airflow_admin_user }}"
+          -e AIRFLOW_PASSWORD="{{ airflow_admin_password }}"
+          -e GRAFANA_URL="http://10.100.100.201:3000"
+          -e GRAFANA_USER="{{ grafana_admin_user }}"
+          -e GRAFANA_PASSWORD="{{ grafana_admin_password }}"
+          aq_ai_strategy_manager sh -c "python3 /app/hub/brain_v1.py > /app/hub/brain.log 2>&1"
+      changed_when: true
